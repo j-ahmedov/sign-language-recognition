@@ -79,6 +79,9 @@ ignore = [
 # that a k-shot draw is reproducible regardless of preceding randomness. A local Generator
 # would not participate in that contract.
 "src/signadapt/data/dataset.py" = ["NPY002"]
+# Same contract: the IID shuffle runs inside `temporary_seed` so the partition is
+# reproducible from the run's seed regardless of what drew from the RNG before it.
+"src/signadapt/federated/simulation.py" = ["NPY002"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

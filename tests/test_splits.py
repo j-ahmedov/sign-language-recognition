@@ -18,11 +18,13 @@ from signadapt.data.dataset import (
     ClipRecord,
     Split,
     assert_disjoint,
+    feasible_k_values,
     is_two_handed,
     kshot_indices,
     load_records,
     loso_folds,
     make_splits,
+    max_k,
     parse_clip_id,
 )
 from signadapt.utils.config import load_config
@@ -227,33 +229,53 @@ def test_is_two_handed(label, expected):
 
 
 def test_kshot_is_nested_across_k():
-    """k=5's support set must extend k=3's, or the adaptation curve measures luck."""
+    """k=4's support set must extend k=2's, or the adaptation curve measures luck."""
     records = synthetic_records()
     candidates = [i for i, r in enumerate(records) if r.signer == 7]
-    small, _ = kshot_indices(records, candidates, 3, seed=0)
-    large, _ = kshot_indices(records, candidates, 5, seed=0)
-    assert set(small) <= set(large)
+    for small_k, large_k in [(0, 1), (1, 2), (2, 3), (3, 4)]:
+        small, _ = kshot_indices(records, candidates, small_k, seed=0)
+        large, _ = kshot_indices(records, candidates, large_k, seed=0)
+        assert set(small) <= set(large), f"k={small_k} is not a prefix of k={large_k}"
+
+
+def test_kshot_query_set_is_identical_for_every_k():
+    """Every point on the adaptation curve must be measured on the same examples."""
+    records = synthetic_records()
+    candidates = [i for i, r in enumerate(records) if r.signer == 7]
+    queries = {k: kshot_indices(records, candidates, k, seed=0)[1] for k in range(5)}
+    assert len(set(queries.values())) == 1, "the query set moved as k changed"
+
+
+def test_kshot_query_set_depends_on_the_seed():
+    records = synthetic_records()
+    candidates = [i for i, r in enumerate(records) if r.signer == 7]
+    assert (
+        kshot_indices(records, candidates, 1, seed=0)[1]
+        != kshot_indices(records, candidates, 1, seed=1)[1]
+    )
 
 
 def test_kshot_is_balanced_and_disjoint_from_query():
-    records = synthetic_records()
+    records = synthetic_records(n_classes=8, n_reps=5)
     candidates = [i for i, r in enumerate(records) if r.signer == 7]
     support, query = kshot_indices(records, candidates, 2, seed=0)
 
-    counts = {}
+    counts: dict[int, int] = {}
     for index in support:
         counts[records[index].label] = counts.get(records[index].label, 0) + 1
     assert set(counts.values()) == {2}, "k-shot must draw k examples of every class"
-    assert not set(support) & set(query)
-    assert set(support) | set(query) == set(candidates)
+    assert not set(support) & set(query), "support and query must never share a clip"
+    assert len(query) == 8, "one reserved query clip per class"
+    assert set(support) | set(query) <= set(candidates)
 
 
-def test_kshot_zero_is_empty():
+def test_kshot_zero_has_no_support_but_still_has_a_query_set():
+    """k=0 is the zero-shot point of the curve; it still needs something to evaluate on."""
     records = synthetic_records()
     candidates = [i for i, r in enumerate(records) if r.signer == 7]
     support, query = kshot_indices(records, candidates, 0, seed=0)
     assert support == ()
-    assert set(query) == set(candidates)
+    assert len(query) == 8
 
 
 def test_kshot_support_comes_only_from_the_held_out_signer():
@@ -262,6 +284,32 @@ def test_kshot_support_comes_only_from_the_held_out_signer():
     support, query = kshot_indices(records, candidates, 3, seed=0)
     assert {records[i].signer for i in support} == {7}
     assert {records[i].signer for i in query} == {7}
+
+
+def test_kshot_refuses_a_k_the_data_cannot_supply():
+    """Silently truncating would label a k=10 point that was really measured at k=4."""
+    records = synthetic_records(n_reps=5)
+    candidates = [i for i, r in enumerate(records) if r.signer == 7]
+    with pytest.raises(ValueError, match="smallest class has 5"):
+        kshot_indices(records, candidates, 5, seed=0)
+
+
+def test_max_k_reflects_the_repetitions_available():
+    assert max_k(synthetic_records(n_reps=5)) == 4
+    assert max_k(synthetic_records(n_reps=5), query_repetitions=2) == 3
+
+
+def test_feasible_k_values_splits_the_configured_sweep():
+    """PLAN.md section 6 sweeps to k=20; LSA64 has 5 clips per signer and sign."""
+    feasible, skipped = feasible_k_values(synthetic_records(n_reps=5), [0, 1, 2, 3, 5, 10, 20])
+    assert feasible == (0, 1, 2, 3)
+    assert skipped == (5, 10, 20)
+
+
+@pytest.mark.needs_data
+def test_the_real_dataset_caps_k_at_four():
+    records = load_records(CACHE_DIR)
+    assert max_k(records) == 4, "LSA64 records exactly 5 repetitions per signer and sign"
 
 
 # ------------------------------------------------- the same guard, on the real dataset

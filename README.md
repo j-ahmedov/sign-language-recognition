@@ -17,7 +17,7 @@ run things.
 | 0 | Scaffold, configs, seeding, JSON results logging | **done** |
 | 1 | MediaPipe extraction, normalization, signer-aware splits, leakage test | **done** |
 | 2 | Encoder + head, sanity gate, centralized E1/E2 | **done** |
-| 3 | Flower simulation, FedAvg, IID correctness check, E3 | not started |
+| 3 | Flower simulation, FedAvg, IID correctness check, E3 | **done** |
 | 4 | FedPer (E5), E4, E6, k-sweep | not started |
 | 5 | Figures regenerated from `results/*.json` | not started |
 | 6 | Live webcam demo through a virtual camera | not started |
@@ -103,6 +103,54 @@ confound. `ClipRecord.participant` returns `"10a"`/`"10b"` where person identity
 question, and `splits.exclude_signers: [10]` in `configs/data.yaml` switches to 9 clean
 clients if that turns out to be preferable later.
 
+## Federation (phase 3)
+
+The correctness gate first (PLAN.md §8, week 4). FedAvg is run over an **IID** partition of
+exactly the E2 training clips, across the same number of clients, so the only thing that
+changes is that training is federated:
+
+| | top-1 |
+|---|---|
+| centralized E2 | 86.4 ± 2.3 % |
+| FedAvg, IID partition, 7 clients, 50 rounds | 85.5 % (−0.9 points) |
+
+Inside the ±3-point tolerance, so the loop reproduces centralized training and a federated
+result is now interpretable. `make federated` runs this first and exits non-zero if it fails.
+
+Then the real thing — one client per signer, which is emphatically not IID, since a client's
+whole dataset is one person:
+
+| | top-1 | top-5 |
+|---|---|---|
+| **FedAvg**, 7 signer clients, 50 rounds × 2 local epochs | **85.9 ± 1.6 %** | 98.9 ± 0.5 % |
+
+Federating across signers costs essentially nothing relative to centralized E2 (86.4 %) at
+this scale. 57 tensors (597,632 parameters) cross the wire per client per round.
+
+### E3 — local-only, the null hypothesis for RQ3
+
+Each held-out signer trains their own model from scratch on k of their own clips, evaluated
+on a query set that is **fixed across k**, leave-one-signer-out over all 10 signers × 3 seeds:
+
+| k | top-1, mean ± std across 30 signer-runs |
+|---|---|
+| 0 | 1.7 ± 0.9 % (chance; nothing to fit) |
+| 1 | 63.2 ± 6.0 % |
+| 2 | **86.6 ± 5.6 %** |
+| 3 | 92.8 ± 4.1 % |
+| 4 | 94.0 ± 3.5 % |
+
+**This baseline is very strong, and that matters.** At k=2 a signer training alone already
+matches signer-independent centralized training (E2, 86.4 %); at k=4 it is within a point of
+the E1 ceiling (95.3 %). The reason is visible in E1's own design: E1 splits by *repetition*
+and scores 95.3 %, so LSA64's five repetitions of a sign by one person in one sitting are
+nearly interchangeable. Training on four of them and testing on the fifth is close to
+training and testing on the same clip.
+
+The consequence for RQ3 is that on LSA64 the only region where federation can demonstrably
+help is **k ∈ {0, 1}**. That is a finding about the benchmark, and it is the strongest
+argument yet for getting AUTSL access — see PLAN.md §5.
+
 ## Setup
 
 ```bash
@@ -120,7 +168,8 @@ Tested on macOS 15 (Apple M4, 16 GB) with Python 3.12.
 | `make data` | Download LSA64, extract and cache MediaPipe keypoints to `.npy` |
 | `make sanity` | Overfit-50-clips gate — nothing downstream is reportable until it passes |
 | `make train` | Sanity gate, then centralized baselines E1 and E2 over the configured seeds |
-| `make federated` | Flower simulation (E4 FedAvg, E5 FedPer) |
+| `make federated` | IID correctness check, then FedAvg over one client per signer |
+| `make local` | E3 local-only: each held-out signer trains from scratch on k of their clips |
 | `make figures` | Rebuild every figure from committed `results/*.json` |
 | `make demo` | Webcam → keypoints → caption → virtual camera |
 | `make test` | pytest, including the signer-leakage guard |

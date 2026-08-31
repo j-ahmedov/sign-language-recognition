@@ -124,6 +124,33 @@ def param_groups(model: nn.Module, weight_decay: float) -> list[dict[str, Any]]:
     ]
 
 
+def build_schedule(spec: dict[str, Any], epochs: int) -> Callable[[int], float]:
+    """Pick the learning-rate schedule named in a ``train`` config block.
+
+    ``constant`` exists for federated clients. A client runs only ``local_epochs`` epochs per
+    round, so a within-round cosine would decay the learning rate to near zero inside every
+    round and then reset it -- the schedule would describe the client's two epochs rather
+    than the run's fifty rounds, and the clients would never train at the configured rate at
+    all. Any decay across a federated run belongs to the server, not to the local step.
+
+    Args:
+        spec: A ``train`` block; reads ``scheduler`` and ``warmup_epochs``.
+        epochs: Total epochs this schedule covers.
+
+    Returns:
+        A function from epoch index to learning-rate multiplier.
+
+    Raises:
+        ValueError: On an unknown scheduler name.
+    """
+    name = str(spec.get("scheduler", "cosine"))
+    if name == "constant":
+        return lambda epoch: 1.0
+    if name == "cosine":
+        return cosine_schedule(epochs, int(spec.get("warmup_epochs", 0)))
+    raise ValueError(f"unknown train.scheduler: {name!r}")
+
+
 def cosine_schedule(epochs: int, warmup_epochs: int) -> Callable[[int], float]:
     """Build the learning-rate multiplier: linear warmup, then cosine decay to zero.
 
@@ -232,9 +259,7 @@ def train_model(
     optimizer = torch.optim.AdamW(
         param_groups(model, float(spec.get("weight_decay", 0.0))), lr=float(spec["lr"])
     )
-    scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, cosine_schedule(n_epochs, int(spec.get("warmup_epochs", 0)))
-    )
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, build_schedule(spec, n_epochs))
     criterion = nn.CrossEntropyLoss(label_smoothing=float(spec.get("label_smoothing", 0.0)))
     grad_clip = float(spec.get("grad_clip", 0.0))
     generator = torch_generator(seed + 1)
@@ -318,5 +343,9 @@ def evaluate_tensors(
     Returns:
         The :class:`~signadapt.train.evaluate.EvalResult`.
     """
+    # Move the model here rather than relying on the caller: an evaluation-only path (E3 at
+    # k=0 evaluates an untrained model without ever calling train_model) would otherwise hit
+    # a device mismatch that has nothing to do with the experiment.
+    model.to(device)
     loader = make_loader(*data, batch_size=int(cfg["train"]["batch_size"]), shuffle=False)
     return evaluate(model, loader, device, records=records, indices=indices)

@@ -6,7 +6,7 @@ PIP    ?= .venv/bin/pip
 SEED   ?= 0
 CONFIG ?= configs
 
-.PHONY: help setup data overlay sanity train federated figures demo test lint format clean
+.PHONY: help setup data overlay sanity train federated local figures demo test lint format clean
 
 CLIPS ?= 001_001_001 010_007_004 030_002_001 045_010_002 060_006_003
 
@@ -17,7 +17,8 @@ help:
 	@echo "  overlay    render keypoints back over video for visual checking"
 	@echo "  sanity     overfit-50-clips gate; nothing is reportable until it passes"
 	@echo "  train      centralized baselines E1 and E2 (E6 lands with the k-sweep)"
-	@echo "  federated  Flower simulation: FedAvg (E4) and FedPer (E5)         [phase 3-4]"
+	@echo "  federated  IID correctness check, then FedAvg over one client per signer"
+	@echo "  local      E3 local-only: each held-out signer trains from scratch on k clips"
 	@echo "  figures    regenerate every figure from committed results/*.json  [phase 5]"
 	@echo "  demo       webcam -> keypoints -> caption -> virtual camera       [phase 6]"
 	@echo "  test       pytest (signer-leakage guard lives here)"
@@ -48,8 +49,18 @@ train:
 		--data-config $(CONFIG)/data.yaml --experiment $(EXPERIMENT) \
 		$(if $(SEEDS),--seeds $(SEEDS),)
 
+# EXPERIMENT=all runs the IID correctness check first and refuses to go on if it fails.
+FL_EXPERIMENT ?= all
+
 federated:
-	$(PYTHON) -m signadapt.federated.simulation --config $(CONFIG)/fl.yaml --seed $(SEED)
+	$(PYTHON) -m signadapt.federated.simulation --config $(CONFIG)/fl.yaml \
+		--model-config $(CONFIG)/model.yaml --data-config $(CONFIG)/data.yaml \
+		--experiment $(FL_EXPERIMENT) $(if $(SEEDS),--seeds $(SEEDS),--seed $(SEED))
+
+local:
+	$(PYTHON) -m signadapt.train.local_only --config $(CONFIG)/fl.yaml \
+		--model-config $(CONFIG)/model.yaml --data-config $(CONFIG)/data.yaml \
+		$(if $(SEEDS),--seeds $(SEEDS),)
 
 figures:
 	$(PYTHON) -m signadapt.figures --results results --out figures

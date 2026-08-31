@@ -18,7 +18,10 @@ echo "== phase 2: sanity gate + centralized baselines E1, E2 ========"
 $PYTHON -m signadapt.train.centralized --experiment all --seeds $SEEDS
 
 echo "== phase 3: federated FedAvg + IID correctness check + E3 ====="
-echo "not implemented yet (phase 3)"
+# --experiment all runs the IID check first and exits non-zero if FedAvg does not
+# reproduce centralized training on IID data (PLAN.md section 8, week 4).
+$PYTHON -m signadapt.federated.simulation --experiment all --seeds $SEEDS
+$PYTHON -m signadapt.train.local_only --seeds $SEEDS
 
 echo "== phase 4: FedPer E5, E4, E6 and the k-sweep ================="
 echo "not implemented yet (phase 4)"

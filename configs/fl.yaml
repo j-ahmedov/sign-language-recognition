@@ -8,11 +8,16 @@ simulation:
     num_gpus: 0             # MPS is not shareable across ray workers; clients run on CPU
   ray_init_args:
     include_dashboard: false
+  client_device: cpu        # clients live in ray actors; see simulation.client_resources
 
 server:
   num_rounds: 50
   fraction_fit: 1.0         # 7-9 training clients: sample all of them every round
-  fraction_evaluate: 1.0
+  # 0.0 on purpose: a client can only evaluate on its own partition, which is the data it
+  # just trained on, so distributed evaluation measures local fit rather than generalization.
+  # The number that matters is server-side and centralized -- the global model on the
+  # held-out validation signer -- and that runs every round regardless of this setting.
+  fraction_evaluate: 0.0
   min_fit_clients: 2
   min_available_clients: 2
 
@@ -31,8 +36,13 @@ strategy:
   private_prefixes: ["head."]
 
 personalization:
-  # PLAN.md section 6 sweep.
-  k_values: [0, 1, 2, 3, 5, 10, 20]
+  # PLAN.md section 6 sweeps k to 20. LSA64 records exactly 5 repetitions of every sign by
+  # every signer, and one is reserved as a fixed query set, so k > 4 cannot be drawn at all
+  # -- signadapt.data.dataset.kshot_indices raises rather than silently truncating. The
+  # sweep below is the realizable one; feasible_k_values() re-derives it from the data, so
+  # a larger dataset can restore the original values without editing code.
+  k_values: [0, 1, 2, 3, 4]
+  query_repetitions: 1
   seeds: [0, 1, 2]
   adapt_epochs: 30
   adapt_lr: 1.0e-3

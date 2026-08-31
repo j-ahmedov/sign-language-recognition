@@ -1,0 +1,1523 @@
+{
+  "schema_version": 1,
+  "experiment": "fedavg-pretrain",
+  "tag": null,
+  "description": "fedavg over one client per training signer -- the non-IID setting the thesis is about. Produces the shared encoder that phase 4 personalizes.",
+  "seed": 0,
+  "status": "ok",
+  "error": null,
+  "created_utc": "2026-08-31T10:40:15.616680+00:00",
+  "duration_s": 192.036,
+  "environment": {
+    "python": "3.12.6",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "hostname": "MacBook-Pro-14-J.local",
+    "cpu_count": 10,
+    "torch_device": "mps",
+    "versions": {
+      "numpy": "1.26.4",
+      "torch": "2.13.0",
+      "flwr": "1.35.0",
+      "mediapipe": "0.10.35",
+      "cv2": "4.11.0"
+    },
+    "git": {
+      "commit": "71f9f62b6ea33f83b392eacbdcaef825ab210790",
+      "dirty": true
+    }
+  },
+  "config": {
+    "model": {
+      "encoder": {
+        "type": "temporal_transformer",
+        "input_dim": 460,
+        "d_model": 128,
+        "n_layers": 4,
+        "n_heads": 4,
+        "ff_dim": 256,
+        "dropout": 0.1,
+        "max_len": 64,
+        "pooling": "mean"
+      },
+      "head": {
+        "type": "linear",
+        "in_dim": 128,
+        "n_classes": 64,
+        "dropout": 0.0
+      },
+      "train": {
+        "epochs": 60,
+        "batch_size": 32,
+        "optimizer": "adamw",
+        "lr": 0.0003,
+        "weight_decay": 0.01,
+        "scheduler": "cosine",
+        "warmup_epochs": 3,
+        "label_smoothing": 0.1,
+        "grad_clip": 1.0,
+        "early_stopping_patience": 12,
+        "device": "auto",
+        "num_workers": 0
+      },
+      "augment": {
+        "enabled": true,
+        "rotate_deg": 10.0,
+        "scale_jitter": 0.1,
+        "translate": 0.05,
+        "time_mask": 8,
+        "dropout_landmarks": 0.05
+      },
+      "sanity": {
+        "subset_size": 50,
+        "epochs": 200,
+        "target_accuracy": 0.98
+      },
+      "seeds": [
+        0,
+        1,
+        2
+      ]
+    },
+    "data": {
+      "dataset": {
+        "name": "lsa64",
+        "url": "https://facundoq.github.io/datasets/lsa64/",
+        "archive_name": "lsa64_cut.zip",
+        "archive_sha256": "0bba209f3f32357233612a374d68da408c7a978e09584ddff834c0c3c96257e3",
+        "raw_dir": "data/raw/lsa64",
+        "cache_dir": "data/cache/lsa64",
+        "n_classes": 64,
+        "n_signers": 10
+      },
+      "landmarks": {
+        "pose": 33,
+        "left_hand": 21,
+        "right_hand": 21,
+        "face": {
+          "subset_name": "signadapt40",
+          "n_landmarks": 40
+        },
+        "total": 115
+      },
+      "normalization": {
+        "anchor": "mid_shoulder",
+        "scale": "shoulder_width",
+        "z_weight": 0.25,
+        "missing_hand": "mask",
+        "mirror_left_handed": true
+      },
+      "temporal": {
+        "n_frames": 64,
+        "resample": "linear"
+      },
+      "extraction": {
+        "n_workers": 8,
+        "min_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+        "model_complexity": 1
+      },
+      "splits": {
+        "mode": "signer_independent",
+        "exclude_signers": [],
+        "train_signers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "val_signers": [
+          8
+        ],
+        "test_signers": [
+          9,
+          10
+        ],
+        "val_fraction": 0.1
+      }
+    },
+    "fl": {
+      "simulation": {
+        "backend": "ray",
+        "num_clients": 10,
+        "client_resources": {
+          "num_cpus": 1,
+          "num_gpus": 0
+        },
+        "ray_init_args": {
+          "include_dashboard": false
+        },
+        "client_device": "cpu"
+      },
+      "server": {
+        "num_rounds": 50,
+        "fraction_fit": 1.0,
+        "fraction_evaluate": 0.0,
+        "min_fit_clients": 2,
+        "min_available_clients": 2
+      },
+      "client": {
+        "local_epochs": 2,
+        "batch_size": 32,
+        "lr": 0.0003,
+        "weight_decay": 0.01
+      },
+      "strategy": {
+        "name": "fedavg",
+        "aggregate_prefixes": [
+          "encoder.",
+          "head."
+        ],
+        "private_prefixes": [
+          "head."
+        ]
+      },
+      "personalization": {
+        "k_values": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "query_repetitions": 1,
+        "seeds": [
+          0,
+          1,
+          2
+        ],
+        "adapt_epochs": 30,
+        "adapt_lr": 0.001,
+        "loso": true
+      },
+      "checks": {
+        "iid_tolerance": 0.03
+      }
+    }
+  },
+  "metrics": {
+    "top1": 0.862500011920929,
+    "top5": 0.989062488079071,
+    "loss": 0.6053942441940308,
+    "n": 640,
+    "per_signer": {
+      "10": 0.89375,
+      "9": 0.83125
+    },
+    "per_participant": {
+      "10a": 0.8260869565217391,
+      "10b": 0.9317073170731708,
+      "9": 0.83125
+    },
+    "per_handedness": {
+      "one_handed": 0.8142857142857143,
+      "two_handed": 0.9545454545454546
+    },
+    "across_signers": {
+      "mean": 0.8625,
+      "std": 0.04419417382415922,
+      "min": 0.83125,
+      "max": 0.89375,
+      "n": 2
+    },
+    "best_round": 50,
+    "best_val_top1": 0.8656250238418579,
+    "n_rounds": 50,
+    "n_shared_tensors": 57,
+    "checkpoint": "data/checkpoints/fedavg-pretrain_seed0.pt"
+  },
+  "records": [
+    {
+      "round": 1,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.276153428213937,
+        "train_loss": 4.0854482276099064,
+        "train_top1": 0.044642857142857144
+      },
+      "fit_metrics": {
+        "seconds": 3.276153428213937,
+        "train_loss": 4.0854482276099064,
+        "train_top1": 0.044642857142857144
+      }
+    },
+    {
+      "round": 2,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 2.992782013756888,
+        "train_loss": 3.6590782812663485,
+        "train_top1": 0.13526785714285713
+      },
+      "fit_metrics": {
+        "seconds": 2.992782013756888,
+        "train_loss": 3.6590782812663485,
+        "train_top1": 0.13526785714285713
+      }
+    },
+    {
+      "round": 3,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.0925592354365756,
+        "train_loss": 3.3120774269104003,
+        "train_top1": 0.225
+      },
+      "fit_metrics": {
+        "seconds": 3.0925592354365756,
+        "train_loss": 3.3120774269104003,
+        "train_top1": 0.225
+      }
+    },
+    {
+      "round": 4,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1210262094225203,
+        "train_loss": 3.0874297210148405,
+        "train_top1": 0.30625
+      },
+      "fit_metrics": {
+        "seconds": 3.1210262094225203,
+        "train_loss": 3.0874297210148405,
+        "train_top1": 0.30625
+      }
+    },
+    {
+      "round": 5,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.163820539202009,
+        "train_loss": 2.8789158855165753,
+        "train_top1": 0.4200892857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.163820539202009,
+        "train_loss": 2.8789158855165753,
+        "train_top1": 0.4200892857142857
+      }
+    },
+    {
+      "round": 6,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.093220063618251,
+        "train_loss": 2.704957209314619,
+        "train_top1": 0.4745535714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.093220063618251,
+        "train_loss": 2.704957209314619,
+        "train_top1": 0.4745535714285714
+      }
+    },
+    {
+      "round": 7,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1464991910117015,
+        "train_loss": 2.496216348239354,
+        "train_top1": 0.578125
+      },
+      "fit_metrics": {
+        "seconds": 3.1464991910117015,
+        "train_loss": 2.496216348239354,
+        "train_top1": 0.578125
+      }
+    },
+    {
+      "round": 8,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.127655948911394,
+        "train_loss": 2.3081979479108536,
+        "train_top1": 0.6410714285714286
+      },
+      "fit_metrics": {
+        "seconds": 3.127655948911394,
+        "train_loss": 2.3081979479108536,
+        "train_top1": 0.6410714285714286
+      }
+    },
+    {
+      "round": 9,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1858088288988387,
+        "train_loss": 2.150915265083313,
+        "train_top1": 0.70625
+      },
+      "fit_metrics": {
+        "seconds": 3.1858088288988387,
+        "train_loss": 2.150915265083313,
+        "train_top1": 0.70625
+      }
+    },
+    {
+      "round": 10,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.181491034371512,
+        "train_loss": 2.004625875609262,
+        "train_top1": 0.7544642857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.181491034371512,
+        "train_loss": 2.004625875609262,
+        "train_top1": 0.7544642857142857
+      }
+    },
+    {
+      "round": 11,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1942988463810513,
+        "train_loss": 1.8739321793828692,
+        "train_top1": 0.790625
+      },
+      "fit_metrics": {
+        "seconds": 3.1942988463810513,
+        "train_loss": 1.8739321793828692,
+        "train_top1": 0.790625
+      }
+    },
+    {
+      "round": 12,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.141348191670009,
+        "train_loss": 1.7606653451919556,
+        "train_top1": 0.8165178571428572
+      },
+      "fit_metrics": {
+        "seconds": 3.141348191670009,
+        "train_loss": 1.7606653451919556,
+        "train_top1": 0.8165178571428572
+      }
+    },
+    {
+      "round": 13,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1461260999952043,
+        "train_loss": 1.6602007218769619,
+        "train_top1": 0.8383928571428572
+      },
+      "fit_metrics": {
+        "seconds": 3.1461260999952043,
+        "train_loss": 1.6602007218769619,
+        "train_top1": 0.8383928571428572
+      }
+    },
+    {
+      "round": 14,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1183384486607144,
+        "train_loss": 1.54286721433912,
+        "train_top1": 0.859375
+      },
+      "fit_metrics": {
+        "seconds": 3.1183384486607144,
+        "train_loss": 1.54286721433912,
+        "train_top1": 0.859375
+      }
+    },
+    {
+      "round": 15,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.2611371108463834,
+        "train_loss": 1.4832092336245946,
+        "train_top1": 0.8709821428571428
+      },
+      "fit_metrics": {
+        "seconds": 3.2611371108463834,
+        "train_loss": 1.4832092336245946,
+        "train_top1": 0.8709821428571428
+      }
+    },
+    {
+      "round": 16,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.2777761731828963,
+        "train_loss": 1.3964415669441224,
+        "train_top1": 0.8959821428571428
+      },
+      "fit_metrics": {
+        "seconds": 3.2777761731828963,
+        "train_loss": 1.3964415669441224,
+        "train_top1": 0.8959821428571428
+      }
+    },
+    {
+      "round": 17,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.239290680204119,
+        "train_loss": 1.3238765239715575,
+        "train_top1": 0.9080357142857143
+      },
+      "fit_metrics": {
+        "seconds": 3.239290680204119,
+        "train_loss": 1.3238765239715575,
+        "train_top1": 0.9080357142857143
+      }
+    },
+    {
+      "round": 18,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.183171136038644,
+        "train_loss": 1.2734646729060581,
+        "train_top1": 0.9160714285714285
+      },
+      "fit_metrics": {
+        "seconds": 3.183171136038644,
+        "train_loss": 1.2734646729060581,
+        "train_top1": 0.9160714285714285
+      }
+    },
+    {
+      "round": 19,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1576366083962575,
+        "train_loss": 1.2301728180476597,
+        "train_top1": 0.9174107142857143
+      },
+      "fit_metrics": {
+        "seconds": 3.1576366083962575,
+        "train_loss": 1.2301728180476597,
+        "train_top1": 0.9174107142857143
+      }
+    },
+    {
+      "round": 20,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1975265571049283,
+        "train_loss": 1.1686321326664515,
+        "train_top1": 0.9263392857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.1975265571049283,
+        "train_loss": 1.1686321326664515,
+        "train_top1": 0.9263392857142857
+      }
+    },
+    {
+      "round": 21,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.1036627292633057,
+        "train_loss": 1.126330610683986,
+        "train_top1": 0.9370535714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.1036627292633057,
+        "train_loss": 1.126330610683986,
+        "train_top1": 0.9370535714285714
+      }
+    },
+    {
+      "round": 22,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.326130049569266,
+        "train_loss": 1.0908699520996639,
+        "train_top1": 0.9388392857142858
+      },
+      "fit_metrics": {
+        "seconds": 3.326130049569266,
+        "train_loss": 1.0908699520996639,
+        "train_top1": 0.9388392857142858
+      }
+    },
+    {
+      "round": 23,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.710219519478934,
+        "train_loss": 1.0701317293303354,
+        "train_top1": 0.9383928571428571
+      },
+      "fit_metrics": {
+        "seconds": 3.710219519478934,
+        "train_loss": 1.0701317293303354,
+        "train_top1": 0.9383928571428571
+      }
+    },
+    {
+      "round": 24,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.71739091191973,
+        "train_loss": 1.0372656728540148,
+        "train_top1": 0.953125
+      },
+      "fit_metrics": {
+        "seconds": 3.71739091191973,
+        "train_loss": 1.0372656728540148,
+        "train_top1": 0.953125
+      }
+    },
+    {
+      "round": 25,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.507526023047311,
+        "train_loss": 1.0259925970009396,
+        "train_top1": 0.9526785714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.507526023047311,
+        "train_loss": 1.0259925970009396,
+        "train_top1": 0.9526785714285714
+      }
+    },
+    {
+      "round": 26,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.4889631952558244,
+        "train_loss": 1.0014093322413309,
+        "train_top1": 0.95625
+      },
+      "fit_metrics": {
+        "seconds": 3.4889631952558244,
+        "train_loss": 1.0014093322413309,
+        "train_top1": 0.95625
+      }
+    },
+    {
+      "round": 27,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.2955559321812222,
+        "train_loss": 0.9806941185678755,
+        "train_top1": 0.9633928571428572
+      },
+      "fit_metrics": {
+        "seconds": 3.2955559321812222,
+        "train_loss": 0.9806941185678755,
+        "train_top1": 0.9633928571428572
+      }
+    },
+    {
+      "round": 28,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.278986726488386,
+        "train_loss": 0.9712927741663796,
+        "train_top1": 0.9602678571428571
+      },
+      "fit_metrics": {
+        "seconds": 3.278986726488386,
+        "train_loss": 0.9712927741663796,
+        "train_top1": 0.9602678571428571
+      }
+    },
+    {
+      "round": 29,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.2306568963187083,
+        "train_loss": 0.9724999163831983,
+        "train_top1": 0.9598214285714286
+      },
+      "fit_metrics": {
+        "seconds": 3.2306568963187083,
+        "train_loss": 0.9724999163831983,
+        "train_top1": 0.9598214285714286
+      }
+    },
+    {
+      "round": 30,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3083809443882535,
+        "train_loss": 0.9653938353061676,
+        "train_top1": 0.9482142857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.3083809443882535,
+        "train_loss": 0.9653938353061676,
+        "train_top1": 0.9482142857142857
+      }
+    },
+    {
+      "round": 31,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.500400815691267,
+        "train_loss": 0.9437258516039168,
+        "train_top1": 0.9616071428571429
+      },
+      "fit_metrics": {
+        "seconds": 3.500400815691267,
+        "train_loss": 0.9437258516039168,
+        "train_top1": 0.9616071428571429
+      }
+    },
+    {
+      "round": 32,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.4363884925842285,
+        "train_loss": 0.9334852618830545,
+        "train_top1": 0.9629464285714285
+      },
+      "fit_metrics": {
+        "seconds": 3.4363884925842285,
+        "train_loss": 0.9334852618830545,
+        "train_top1": 0.9629464285714285
+      }
+    },
+    {
+      "round": 33,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3119466645377025,
+        "train_loss": 0.9337301083973476,
+        "train_top1": 0.9566964285714286
+      },
+      "fit_metrics": {
+        "seconds": 3.3119466645377025,
+        "train_loss": 0.9337301083973476,
+        "train_top1": 0.9566964285714286
+      }
+    },
+    {
+      "round": 34,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3533902168273926,
+        "train_loss": 0.923482300554003,
+        "train_top1": 0.9642857142857143
+      },
+      "fit_metrics": {
+        "seconds": 3.3533902168273926,
+        "train_loss": 0.923482300554003,
+        "train_top1": 0.9642857142857143
+      }
+    },
+    {
+      "round": 35,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3315979753221785,
+        "train_loss": 0.9036796348435538,
+        "train_top1": 0.9714285714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.3315979753221785,
+        "train_loss": 0.9036796348435538,
+        "train_top1": 0.9714285714285714
+      }
+    },
+    {
+      "round": 36,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3062877314431325,
+        "train_loss": 0.8959930607250759,
+        "train_top1": 0.9727678571428572
+      },
+      "fit_metrics": {
+        "seconds": 3.3062877314431325,
+        "train_loss": 0.8959930607250759,
+        "train_top1": 0.9727678571428572
+      }
+    },
+    {
+      "round": 37,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.412536587033953,
+        "train_loss": 0.8935214953763144,
+        "train_top1": 0.9714285714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.412536587033953,
+        "train_loss": 0.8935214953763144,
+        "train_top1": 0.9714285714285714
+      }
+    },
+    {
+      "round": 38,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.322624819619315,
+        "train_loss": 0.8981536780084882,
+        "train_top1": 0.971875
+      },
+      "fit_metrics": {
+        "seconds": 3.322624819619315,
+        "train_loss": 0.8981536780084882,
+        "train_top1": 0.971875
+      }
+    },
+    {
+      "round": 39,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.299576929637364,
+        "train_loss": 0.896115278346198,
+        "train_top1": 0.9705357142857143
+      },
+      "fit_metrics": {
+        "seconds": 3.299576929637364,
+        "train_loss": 0.896115278346198,
+        "train_top1": 0.9705357142857143
+      }
+    },
+    {
+      "round": 40,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3603292533329556,
+        "train_loss": 0.8887437156268528,
+        "train_top1": 0.9772321428571429
+      },
+      "fit_metrics": {
+        "seconds": 3.3603292533329556,
+        "train_loss": 0.8887437156268528,
+        "train_top1": 0.9772321428571429
+      }
+    },
+    {
+      "round": 41,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3594680513654436,
+        "train_loss": 0.8798491154398237,
+        "train_top1": 0.9758928571428571
+      },
+      "fit_metrics": {
+        "seconds": 3.3594680513654436,
+        "train_loss": 0.8798491154398237,
+        "train_top1": 0.9758928571428571
+      }
+    },
+    {
+      "round": 42,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.431955303464617,
+        "train_loss": 0.8774749985763005,
+        "train_top1": 0.9732142857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.431955303464617,
+        "train_loss": 0.8774749985763005,
+        "train_top1": 0.9732142857142857
+      }
+    },
+    {
+      "round": 43,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.393970114844186,
+        "train_loss": 0.8620950026171548,
+        "train_top1": 0.9816964285714286
+      },
+      "fit_metrics": {
+        "seconds": 3.393970114844186,
+        "train_loss": 0.8620950026171548,
+        "train_top1": 0.9816964285714286
+      }
+    },
+    {
+      "round": 44,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.349649599620274,
+        "train_loss": 0.8662080526351928,
+        "train_top1": 0.9803571428571428
+      },
+      "fit_metrics": {
+        "seconds": 3.349649599620274,
+        "train_loss": 0.8662080526351928,
+        "train_top1": 0.9803571428571428
+      }
+    },
+    {
+      "round": 45,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.309026139123099,
+        "train_loss": 0.8536155768803187,
+        "train_top1": 0.984375
+      },
+      "fit_metrics": {
+        "seconds": 3.309026139123099,
+        "train_loss": 0.8536155768803187,
+        "train_top1": 0.984375
+      }
+    },
+    {
+      "round": 46,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3051654951913014,
+        "train_loss": 0.859044029882976,
+        "train_top1": 0.9763392857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.3051654951913014,
+        "train_loss": 0.859044029882976,
+        "train_top1": 0.9763392857142857
+      }
+    },
+    {
+      "round": 47,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.321988718850272,
+        "train_loss": 0.8496137227330889,
+        "train_top1": 0.9839285714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.321988718850272,
+        "train_loss": 0.8496137227330889,
+        "train_top1": 0.9839285714285714
+      }
+    },
+    {
+      "round": 48,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.2879225526537215,
+        "train_loss": 0.855748586995261,
+        "train_top1": 0.9794642857142857
+      },
+      "fit_metrics": {
+        "seconds": 3.2879225526537215,
+        "train_loss": 0.855748586995261,
+        "train_top1": 0.9794642857142857
+      }
+    },
+    {
+      "round": 49,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.3425089631761824,
+        "train_loss": 0.8535082399845123,
+        "train_top1": 0.9790178571428572
+      },
+      "fit_metrics": {
+        "seconds": 3.3425089631761824,
+        "train_loss": 0.8535082399845123,
+        "train_top1": 0.9790178571428572
+      }
+    },
+    {
+      "round": 50,
+      "n_clients": 7,
+      "n_failures": 0,
+      "n_examples": 2240,
+      "signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "fit": {
+        "seconds": 3.4460722378322055,
+        "train_loss": 0.8464086856160845,
+        "train_top1": 0.9808035714285714
+      },
+      "fit_metrics": {
+        "seconds": 3.4460722378322055,
+        "train_loss": 0.8464086856160845,
+        "train_top1": 0.9808035714285714
+      }
+    }
+  ],
+  "partition": {
+    "mode": "signer",
+    "n_clients": 7,
+    "sizes": {
+      "1": 320,
+      "2": 320,
+      "3": 320,
+      "4": 320,
+      "5": 320,
+      "6": 320,
+      "7": 320
+    }
+  },
+  "split": {
+    "name": "signer_independent",
+    "sizes": {
+      "train": 2240,
+      "val": 320,
+      "test": 640
+    },
+    "signers": {
+      "train": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "val": [
+        8
+      ],
+      "test": [
+        9,
+        10
+      ]
+    }
+  }
+}

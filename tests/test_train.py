@@ -206,3 +206,44 @@ def test_breakdowns_cover_every_signer_in_the_test_split():
     assert set(result.per_signer) == {str(records[i].signer) for i in indices}
     assert set(result.per_handedness) <= {"one_handed", "two_handed"}
     assert result.n == len(indices)
+
+
+# ------------------------------------------------------------------- E3 local-only (phase 3)
+
+
+def test_adapt_config_disables_early_stopping_and_uses_the_personalization_lr():
+    """A signer with k=1 has one clip per sign, so there is nothing to early-stop on."""
+    from signadapt.train.local_only import adapt_config
+
+    model_cfg = load_config("configs/model.yaml")
+    fl_cfg = load_config("configs/fl.yaml")
+    cfg = adapt_config(model_cfg, fl_cfg)
+
+    assert cfg["train"]["lr"] == float(fl_cfg["personalization"]["adapt_lr"])
+    assert cfg["train"]["epochs"] == int(fl_cfg["personalization"]["adapt_epochs"])
+    assert cfg["train"]["early_stopping_patience"] == 0
+    assert cfg["train"]["warmup_epochs"] <= cfg["train"]["epochs"] // 4
+    assert model_cfg["train"]["early_stopping_patience"] > 0, "the centralized config stands"
+
+
+def test_constant_schedule_does_not_decay():
+    """A within-round cosine would decay to near zero every round and then reset."""
+    from signadapt.train.loop import build_schedule
+
+    factor = build_schedule({"scheduler": "constant"}, epochs=2)
+    assert [factor(e) for e in range(2)] == [1.0, 1.0]
+
+
+def test_cosine_schedule_over_two_epochs_would_never_reach_full_rate():
+    """Documents the bug the constant schedule exists to avoid."""
+    from signadapt.train.loop import build_schedule
+
+    factor = build_schedule({"scheduler": "cosine", "warmup_epochs": 3}, epochs=2)
+    assert max(factor(e) for e in range(2)) < 1.0
+
+
+def test_unknown_scheduler_is_rejected():
+    from signadapt.train.loop import build_schedule
+
+    with pytest.raises(ValueError, match="train.scheduler"):
+        build_schedule({"scheduler": "onecycle"}, epochs=10)

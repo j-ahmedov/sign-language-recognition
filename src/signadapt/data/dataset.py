@@ -57,6 +57,12 @@ SESSION_1_LAST_LABEL = 22
 #: once. Set ``splits.exclude_signers: [10]`` in configs/data.yaml to drop it.
 SPLIT_IDENTITY_SIGNERS: tuple[int, ...] = (10,)
 
+# Clips per class reserved from a held-out signer as the fixed evaluation set for the k-shot
+# sweep. LSA64 records exactly 5 repetitions of every sign by every signer, so reserving 1
+# caps k at 4 -- PLAN.md section 6's sweep up to k=20 is not realizable on this dataset.
+# See :func:`kshot_indices` and :func:`max_k`.
+QUERY_REPETITIONS = 1
+
 #: The 64 LSA64 sign glosses, in dataset order, and whether each is signed with one hand
 #: ("R", all subjects are right-handed) or both ("B"). Transcribed from the sign table at
 #: https://facundoq.github.io/datasets/lsa64/. Needed for two things beyond documentation:
@@ -402,36 +408,100 @@ def kshot_indices(
     k: int,
     *,
     seed: int = 0,
+    query_repetitions: int = QUERY_REPETITIONS,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """Draw a k-shot support set per class, and return the remainder as the query set.
+    """Draw a k-shot support set per class against a query set that does not depend on k.
 
-    The draw is nested across k: the support set for ``k=5`` starts with the same examples
-    as the one for ``k=3`` (same seed), so a rising adaptation curve reflects more data
-    rather than a luckier sample.
+    Two properties matter for the adaptation curve in PLAN.md section 6, and one permutation
+    per class delivers both:
+
+    * **The query set is fixed across k.** ``query_repetitions`` clips per class are reserved
+      before any support is drawn, so top-1 at k=1 and at k=3 are measured on the same
+      examples. Letting the query set shrink as k grows -- the obvious implementation -- means
+      each point on the curve is measured on a different test set, and a rising curve could
+      then be an easier test set rather than a better model.
+    * **The support set is nested across k.** The support for k=3 starts with the same clips
+      as the one for k=2 (same seed), so a rising curve reflects more data and not a luckier
+      draw.
 
     Args:
         records: All records.
         candidates: Indices of the held-out signer's clips to draw from.
-        k: Examples per class; ``k=0`` returns an empty support set.
-        seed: Seed for the draw.
+        k: Support examples per class; ``k=0`` returns an empty support set.
+        seed: Seed for the per-class permutation.
+        query_repetitions: Clips per class reserved for evaluation.
 
     Returns:
-        ``(support, query)`` index tuples. ``query`` is every candidate not in ``support``.
+        ``(support, query)`` index tuples, disjoint by construction. Clips that are neither
+        reserved nor drawn are in neither -- they are the budget k has not spent yet.
+
+    Raises:
+        ValueError: If some class cannot supply ``query_repetitions + k`` clips. Silently
+            truncating would put a point on the adaptation curve labelled ``k=10`` that was
+            actually measured at k=4, which is worse than not having the point.
     """
     by_class: dict[int, list[int]] = {}
     for index in candidates:
         by_class.setdefault(records[index].label, []).append(index)
 
+    smallest = min((len(pool) for pool in by_class.values()), default=0)
+    if by_class and query_repetitions + k > smallest:
+        raise ValueError(
+            f"k={k} with {query_repetitions} reserved query clips needs "
+            f"{query_repetitions + k} clips per class, but the smallest class has {smallest}. "
+            f"On LSA64 every (signer, sign) pair has exactly 5 clips, so k is capped at "
+            f"{smallest - query_repetitions}."
+        )
+
     support: list[int] = []
+    query: list[int] = []
     for label in sorted(by_class):
         pool = sorted(by_class[label])
+        # One permutation, seeded independently of k: the first `query_repetitions` entries
+        # are the fixed query set, and the support is a nested prefix of what remains.
         with temporary_seed(seed * 1000 + label):
             order = np.random.permutation(len(pool))
-        support.extend(pool[i] for i in order[:k])
+        query.extend(pool[i] for i in order[:query_repetitions])
+        support.extend(pool[i] for i in order[query_repetitions : query_repetitions + k])
 
-    chosen = set(support)
-    query = tuple(i for i in candidates if i not in chosen)
-    return tuple(sorted(support)), query
+    return tuple(sorted(support)), tuple(sorted(query))
+
+
+def max_k(records: Sequence[ClipRecord], *, query_repetitions: int = QUERY_REPETITIONS) -> int:
+    """Return the largest k that :func:`kshot_indices` can honour for every signer and class.
+
+    Args:
+        records: All records.
+        query_repetitions: Clips per class reserved for evaluation.
+
+    Returns:
+        ``min clips per (signer, class) - query_repetitions``; 4 on LSA64.
+    """
+    counts: dict[tuple[int, int], int] = {}
+    for record in records:
+        counts[(record.signer, record.label)] = counts.get((record.signer, record.label), 0) + 1
+    return min(counts.values(), default=0) - query_repetitions
+
+
+def feasible_k_values(
+    records: Sequence[ClipRecord],
+    k_values: Iterable[int],
+    *,
+    query_repetitions: int = QUERY_REPETITIONS,
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Split a configured k sweep into the values this dataset can supply and those it cannot.
+
+    Args:
+        records: All records.
+        k_values: The configured sweep, e.g. ``configs/fl.yaml``'s ``[0, 1, 2, 3, 5, 10, 20]``.
+        query_repetitions: Clips per class reserved for evaluation.
+
+    Returns:
+        ``(feasible, skipped)``, both sorted.
+    """
+    limit = max_k(records, query_repetitions=query_repetitions)
+    wanted = sorted(set(k_values))
+    return tuple(k for k in wanted if k <= limit), tuple(k for k in wanted if k > limit)
 
 
 class KeypointDataset(Dataset):

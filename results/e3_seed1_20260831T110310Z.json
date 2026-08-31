@@ -1,0 +1,959 @@
+{
+  "schema_version": 1,
+  "experiment": "E3",
+  "tag": null,
+  "description": "Local-only from scratch: each held-out signer trains their own model on k of their own clips and is evaluated on a query set that is fixed across k. The null hypothesis for RQ3 (PLAN.md section 6).",
+  "seed": 1,
+  "status": "ok",
+  "error": null,
+  "created_utc": "2026-08-31T11:03:10.648555+00:00",
+  "duration_s": 155.615,
+  "environment": {
+    "python": "3.12.6",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "hostname": "MacBook-Pro-14-J.local",
+    "cpu_count": 10,
+    "torch_device": "mps",
+    "versions": {
+      "numpy": "1.26.4",
+      "torch": "2.13.0",
+      "flwr": "1.35.0",
+      "mediapipe": "0.10.35",
+      "cv2": "4.11.0"
+    },
+    "git": {
+      "commit": "71f9f62b6ea33f83b392eacbdcaef825ab210790",
+      "dirty": true
+    }
+  },
+  "config": {
+    "model": {
+      "encoder": {
+        "type": "temporal_transformer",
+        "input_dim": 460,
+        "d_model": 128,
+        "n_layers": 4,
+        "n_heads": 4,
+        "ff_dim": 256,
+        "dropout": 0.1,
+        "max_len": 64,
+        "pooling": "mean"
+      },
+      "head": {
+        "type": "linear",
+        "in_dim": 128,
+        "n_classes": 64,
+        "dropout": 0.0
+      },
+      "train": {
+        "epochs": 30,
+        "batch_size": 32,
+        "optimizer": "adamw",
+        "lr": 0.001,
+        "weight_decay": 0.01,
+        "scheduler": "cosine",
+        "warmup_epochs": 3,
+        "label_smoothing": 0.1,
+        "grad_clip": 1.0,
+        "early_stopping_patience": 0,
+        "device": "auto",
+        "num_workers": 0
+      },
+      "augment": {
+        "enabled": true,
+        "rotate_deg": 10.0,
+        "scale_jitter": 0.1,
+        "translate": 0.05,
+        "time_mask": 8,
+        "dropout_landmarks": 0.05
+      },
+      "sanity": {
+        "subset_size": 50,
+        "epochs": 200,
+        "target_accuracy": 0.98
+      },
+      "seeds": [
+        0,
+        1,
+        2
+      ]
+    },
+    "data": {
+      "dataset": {
+        "name": "lsa64",
+        "url": "https://facundoq.github.io/datasets/lsa64/",
+        "archive_name": "lsa64_cut.zip",
+        "archive_sha256": "0bba209f3f32357233612a374d68da408c7a978e09584ddff834c0c3c96257e3",
+        "raw_dir": "data/raw/lsa64",
+        "cache_dir": "data/cache/lsa64",
+        "n_classes": 64,
+        "n_signers": 10
+      },
+      "landmarks": {
+        "pose": 33,
+        "left_hand": 21,
+        "right_hand": 21,
+        "face": {
+          "subset_name": "signadapt40",
+          "n_landmarks": 40
+        },
+        "total": 115
+      },
+      "normalization": {
+        "anchor": "mid_shoulder",
+        "scale": "shoulder_width",
+        "z_weight": 0.25,
+        "missing_hand": "mask",
+        "mirror_left_handed": true
+      },
+      "temporal": {
+        "n_frames": 64,
+        "resample": "linear"
+      },
+      "extraction": {
+        "n_workers": 8,
+        "min_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+        "model_complexity": 1
+      },
+      "splits": {
+        "mode": "signer_independent",
+        "exclude_signers": [],
+        "train_signers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "val_signers": [
+          8
+        ],
+        "test_signers": [
+          9,
+          10
+        ],
+        "val_fraction": 0.1
+      }
+    },
+    "fl": {
+      "simulation": {
+        "backend": "ray",
+        "num_clients": 10,
+        "client_resources": {
+          "num_cpus": 1,
+          "num_gpus": 0
+        },
+        "ray_init_args": {
+          "include_dashboard": false
+        },
+        "client_device": "cpu"
+      },
+      "server": {
+        "num_rounds": 50,
+        "fraction_fit": 1.0,
+        "fraction_evaluate": 0.0,
+        "min_fit_clients": 2,
+        "min_available_clients": 2
+      },
+      "client": {
+        "local_epochs": 2,
+        "batch_size": 32,
+        "lr": 0.0003,
+        "weight_decay": 0.01
+      },
+      "strategy": {
+        "name": "fedper",
+        "aggregate_prefixes": [
+          "encoder."
+        ],
+        "private_prefixes": [
+          "head."
+        ]
+      },
+      "personalization": {
+        "k_values": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "query_repetitions": 1,
+        "seeds": [
+          0,
+          1,
+          2
+        ],
+        "adapt_epochs": 30,
+        "adapt_lr": 0.001,
+        "loso": true
+      },
+      "checks": {
+        "iid_tolerance": 0.03
+      }
+    }
+  },
+  "metrics": {
+    "by_k": {
+      "0": {
+        "mean": 0.01875,
+        "std": 0.0065880784586841235,
+        "min": 0.015625,
+        "max": 0.03125,
+        "n": 10
+      },
+      "1": {
+        "mean": 0.6234375,
+        "std": 0.055340839413081225,
+        "min": 0.53125,
+        "max": 0.703125,
+        "n": 10
+      },
+      "2": {
+        "mean": 0.8640625,
+        "std": 0.05894857840383713,
+        "min": 0.78125,
+        "max": 0.953125,
+        "n": 10
+      },
+      "3": {
+        "mean": 0.925,
+        "std": 0.04468252206151504,
+        "min": 0.859375,
+        "max": 1.0,
+        "n": 10
+      },
+      "4": {
+        "mean": 0.934375,
+        "std": 0.037413093741808276,
+        "min": 0.890625,
+        "max": 1.0,
+        "n": 10
+      }
+    },
+    "k_values": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "skipped_k": []
+  },
+  "records": [
+    {
+      "k": 0,
+      "signer": 1,
+      "top1": 0.03125,
+      "top5": 0.09375,
+      "loss": 4.369150638580322,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.023809523809523808,
+        "two_handed": 0.045454545454545456
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 1,
+      "top1": 0.65625,
+      "top5": 0.9375,
+      "loss": 2.112973213195801,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.5714285714285714,
+        "two_handed": 0.8181818181818182
+      },
+      "seconds": 1.646608829498291
+    },
+    {
+      "k": 2,
+      "signer": 1,
+      "top1": 0.859375,
+      "top5": 0.984375,
+      "loss": 1.2388033866882324,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8333333333333334,
+        "two_handed": 0.9090909090909091
+      },
+      "seconds": 2.992553949356079
+    },
+    {
+      "k": 3,
+      "signer": 1,
+      "top1": 0.890625,
+      "top5": 0.984375,
+      "loss": 0.7388112545013428,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 0.9090909090909091
+      },
+      "seconds": 4.312819957733154
+    },
+    {
+      "k": 4,
+      "signer": 1,
+      "top1": 0.9375,
+      "top5": 1.0,
+      "loss": 0.4449775516986847,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 0.9090909090909091
+      },
+      "seconds": 5.628815174102783
+    },
+    {
+      "k": 0,
+      "signer": 2,
+      "top1": 0.03125,
+      "top5": 0.078125,
+      "loss": 4.331748962402344,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.047619047619047616,
+        "two_handed": 0.0
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 2,
+      "top1": 0.609375,
+      "top5": 0.890625,
+      "loss": 2.396559238433838,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.5,
+        "two_handed": 0.8181818181818182
+      },
+      "seconds": 1.6548097133636475
+    },
+    {
+      "k": 2,
+      "signer": 2,
+      "top1": 0.78125,
+      "top5": 1.0,
+      "loss": 1.410192847251892,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.6904761904761905,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 2.98152232170105
+    },
+    {
+      "k": 3,
+      "signer": 2,
+      "top1": 0.875,
+      "top5": 1.0,
+      "loss": 0.8553025126457214,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8095238095238095,
+        "two_handed": 1.0
+      },
+      "seconds": 4.284617900848389
+    },
+    {
+      "k": 4,
+      "signer": 2,
+      "top1": 0.890625,
+      "top5": 1.0,
+      "loss": 0.6362775564193726,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8333333333333334,
+        "two_handed": 1.0
+      },
+      "seconds": 5.615751028060913
+    },
+    {
+      "k": 0,
+      "signer": 3,
+      "top1": 0.015625,
+      "top5": 0.109375,
+      "loss": 4.271854400634766,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.023809523809523808,
+        "two_handed": 0.0
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 3,
+      "top1": 0.671875,
+      "top5": 0.96875,
+      "loss": 1.975836992263794,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.5952380952380952,
+        "two_handed": 0.8181818181818182
+      },
+      "seconds": 1.6471128463745117
+    },
+    {
+      "k": 2,
+      "signer": 3,
+      "top1": 0.921875,
+      "top5": 1.0,
+      "loss": 1.0585523843765259,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9047619047619048,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 2.96494197845459
+    },
+    {
+      "k": 3,
+      "signer": 3,
+      "top1": 0.9375,
+      "top5": 1.0,
+      "loss": 0.665641725063324,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9285714285714286,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 4.305032014846802
+    },
+    {
+      "k": 4,
+      "signer": 3,
+      "top1": 0.9375,
+      "top5": 0.984375,
+      "loss": 0.5082859396934509,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 0.9090909090909091
+      },
+      "seconds": 5.622416257858276
+    },
+    {
+      "k": 0,
+      "signer": 4,
+      "top1": 0.015625,
+      "top5": 0.109375,
+      "loss": 4.339101791381836,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.023809523809523808,
+        "two_handed": 0.0
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 4,
+      "top1": 0.59375,
+      "top5": 0.90625,
+      "loss": 2.19290828704834,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.47619047619047616,
+        "two_handed": 0.8181818181818182
+      },
+      "seconds": 1.6573700904846191
+    },
+    {
+      "k": 2,
+      "signer": 4,
+      "top1": 0.890625,
+      "top5": 1.0,
+      "loss": 1.2325154542922974,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 0.9090909090909091
+      },
+      "seconds": 3.0648810863494873
+    },
+    {
+      "k": 3,
+      "signer": 4,
+      "top1": 0.921875,
+      "top5": 1.0,
+      "loss": 0.7879335284233093,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 1.0
+      },
+      "seconds": 4.343363046646118
+    },
+    {
+      "k": 4,
+      "signer": 4,
+      "top1": 0.921875,
+      "top5": 1.0,
+      "loss": 0.5990063548088074,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 1.0
+      },
+      "seconds": 5.661885738372803
+    },
+    {
+      "k": 0,
+      "signer": 5,
+      "top1": 0.015625,
+      "top5": 0.0625,
+      "loss": 4.327503681182861,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.0,
+        "two_handed": 0.045454545454545456
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 5,
+      "top1": 0.578125,
+      "top5": 0.921875,
+      "loss": 2.3132731914520264,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.5714285714285714,
+        "two_handed": 0.5909090909090909
+      },
+      "seconds": 1.6578857898712158
+    },
+    {
+      "k": 2,
+      "signer": 5,
+      "top1": 0.859375,
+      "top5": 0.984375,
+      "loss": 1.2871977090835571,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8571428571428571,
+        "two_handed": 0.8636363636363636
+      },
+      "seconds": 3.172018051147461
+    },
+    {
+      "k": 3,
+      "signer": 5,
+      "top1": 0.96875,
+      "top5": 0.984375,
+      "loss": 0.7549524307250977,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 4.495059251785278
+    },
+    {
+      "k": 4,
+      "signer": 5,
+      "top1": 0.9375,
+      "top5": 0.984375,
+      "loss": 0.5818316340446472,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9285714285714286,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 7.181854009628296
+    },
+    {
+      "k": 0,
+      "signer": 6,
+      "top1": 0.015625,
+      "top5": 0.078125,
+      "loss": 4.291202068328857,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.0,
+        "two_handed": 0.045454545454545456
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 6,
+      "top1": 0.625,
+      "top5": 0.984375,
+      "loss": 2.1663618087768555,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.5238095238095238,
+        "two_handed": 0.8181818181818182
+      },
+      "seconds": 1.7777941226959229
+    },
+    {
+      "k": 2,
+      "signer": 6,
+      "top1": 0.921875,
+      "top5": 1.0,
+      "loss": 1.1860475540161133,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9047619047619048,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 3.095773935317993
+    },
+    {
+      "k": 3,
+      "signer": 6,
+      "top1": 0.921875,
+      "top5": 1.0,
+      "loss": 0.6298599243164062,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9047619047619048,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 4.324263095855713
+    },
+    {
+      "k": 4,
+      "signer": 6,
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.38200023770332336,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "seconds": 5.694587230682373
+    },
+    {
+      "k": 0,
+      "signer": 7,
+      "top1": 0.015625,
+      "top5": 0.09375,
+      "loss": 4.347403526306152,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.0,
+        "two_handed": 0.045454545454545456
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 7,
+      "top1": 0.53125,
+      "top5": 0.953125,
+      "loss": 2.2987561225891113,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.47619047619047616,
+        "two_handed": 0.6363636363636364
+      },
+      "seconds": 1.6392078399658203
+    },
+    {
+      "k": 2,
+      "signer": 7,
+      "top1": 0.796875,
+      "top5": 0.96875,
+      "loss": 1.5256202220916748,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.7142857142857143,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 2.9620940685272217
+    },
+    {
+      "k": 3,
+      "signer": 7,
+      "top1": 0.90625,
+      "top5": 0.984375,
+      "loss": 0.9322894215583801,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 4.2664899826049805
+    },
+    {
+      "k": 4,
+      "signer": 7,
+      "top1": 0.890625,
+      "top5": 1.0,
+      "loss": 0.5490472316741943,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8571428571428571,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 5.532434940338135
+    },
+    {
+      "k": 0,
+      "signer": 8,
+      "top1": 0.015625,
+      "top5": 0.09375,
+      "loss": 4.2840962409973145,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.023809523809523808,
+        "two_handed": 0.0
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 8,
+      "top1": 0.578125,
+      "top5": 0.875,
+      "loss": 2.4080586433410645,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.5238095238095238,
+        "two_handed": 0.6818181818181818
+      },
+      "seconds": 1.621330738067627
+    },
+    {
+      "k": 2,
+      "signer": 8,
+      "top1": 0.796875,
+      "top5": 0.953125,
+      "loss": 1.3479079008102417,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.7380952380952381,
+        "two_handed": 0.9090909090909091
+      },
+      "seconds": 2.9129369258880615
+    },
+    {
+      "k": 3,
+      "signer": 8,
+      "top1": 0.859375,
+      "top5": 0.984375,
+      "loss": 0.834388017654419,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8095238095238095,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 4.207655906677246
+    },
+    {
+      "k": 4,
+      "signer": 8,
+      "top1": 0.890625,
+      "top5": 0.984375,
+      "loss": 0.5515111088752747,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8571428571428571,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 5.4968860149383545
+    },
+    {
+      "k": 0,
+      "signer": 9,
+      "top1": 0.015625,
+      "top5": 0.109375,
+      "loss": 4.3524298667907715,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.023809523809523808,
+        "two_handed": 0.0
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 9,
+      "top1": 0.6875,
+      "top5": 0.921875,
+      "loss": 2.1526684761047363,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.6666666666666666,
+        "two_handed": 0.7272727272727273
+      },
+      "seconds": 1.612705945968628
+    },
+    {
+      "k": 2,
+      "signer": 9,
+      "top1": 0.859375,
+      "top5": 0.984375,
+      "loss": 1.2384339570999146,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8095238095238095,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 2.916027069091797
+    },
+    {
+      "k": 3,
+      "signer": 9,
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.6336534023284912,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 4.207294940948486
+    },
+    {
+      "k": 4,
+      "signer": 9,
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.2992182672023773,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "seconds": 5.545766115188599
+    },
+    {
+      "k": 0,
+      "signer": 10,
+      "top1": 0.015625,
+      "top5": 0.078125,
+      "loss": 4.281707286834717,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.023809523809523808,
+        "two_handed": 0.0
+      },
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 10,
+      "top1": 0.703125,
+      "top5": 0.96875,
+      "loss": 2.0587353706359863,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.6190476190476191,
+        "two_handed": 0.8636363636363636
+      },
+      "seconds": 1.7294859886169434
+    },
+    {
+      "k": 2,
+      "signer": 10,
+      "top1": 0.953125,
+      "top5": 1.0,
+      "loss": 1.0859394073486328,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 3.0777997970581055
+    },
+    {
+      "k": 3,
+      "signer": 10,
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.5387609601020813,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "seconds": 4.21743106842041
+    },
+    {
+      "k": 4,
+      "signer": 10,
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.2885831892490387,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 0.9545454545454546
+      },
+      "seconds": 5.542474031448364
+    }
+  ],
+  "k_values": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "skipped_k": [],
+  "query_repetitions": 1,
+  "n_folds": 10
+}
