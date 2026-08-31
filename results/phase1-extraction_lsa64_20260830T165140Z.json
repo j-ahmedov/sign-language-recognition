@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "experiment": "phase1-extraction",
+  "tag": "lsa64",
+  "description": "MediaPipe landmark detection rates over the extracted dataset.",
+  "seed": null,
+  "status": "ok",
+  "error": null,
+  "created_utc": "2026-08-30T16:51:40.810746+00:00",
+  "duration_s": 0.0,
+  "environment": {
+    "python": "3.12.6",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "hostname": "MacBook-Pro-14-J.local",
+    "cpu_count": 10,
+    "torch_device": "mps",
+    "versions": {
+      "numpy": "1.26.4",
+      "torch": "2.13.0",
+      "flwr": "1.35.0",
+      "mediapipe": "0.10.35",
+      "cv2": "4.11.0"
+    },
+    "git": {
+      "commit": null,
+      "dirty": true
+    }
+  },
+  "config": {
+    "dataset": {
+      "name": "lsa64",
+      "url": "https://facundoq.github.io/datasets/lsa64/",
+      "archive_name": "lsa64_cut.zip",
+      "archive_sha256": "0bba209f3f32357233612a374d68da408c7a978e09584ddff834c0c3c96257e3",
+      "raw_dir": "data/raw/lsa64",
+      "cache_dir": "data/cache/lsa64",
+      "n_classes": 64,
+      "n_signers": 10
+    },
+    "landmarks": {
+      "pose": 33,
+      "left_hand": 21,
+      "right_hand": 21,
+      "face": {
+        "subset_name": "signadapt40",
+        "n_landmarks": 40
+      },
+      "total": 115
+    },
+    "normalization": {
+      "anchor": "mid_shoulder",
+      "scale": "shoulder_width",
+      "z_weight": 0.25,
+      "missing_hand": "mask",
+      "mirror_left_handed": true
+    },
+    "temporal": {
+      "n_frames": 64,
+      "resample": "linear"
+    },
+    "extraction": {
+      "n_workers": 8,
+      "min_detection_confidence": 0.5,
+      "min_tracking_confidence": 0.5,
+      "model_complexity": 1
+    },
+    "splits": {
+      "mode": "signer_independent",
+      "exclude_signers": [],
+      "train_signers": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "val_signers": [
+        8
+      ],
+      "test_signers": [
+        9,
+        10
+      ],
+      "val_fraction": 0.1
+    }
+  },
+  "metrics": {
+    "n_clips": 3200,
+    "mean_detection": {
+      "pose": 1.0,
+      "left_hand": 0.198668625,
+      "right_hand": 0.8620068125,
+      "face": 0.99162825
+    },
+    "required_hands_present_mean": 0.7347492187500001,
+    "clips_never_complete": 132,
+    "clips_below_50pct": 766,
+    "by_handedness": {
+      "one_handed": {
+        "n_clips": 2100,
+        "required_hands_present": 0.8513723333333333,
+        "clips_never_complete": 10,
+        "clips_below_50pct": 230
+      },
+      "two_handed": {
+        "n_clips": 1100,
+        "required_hands_present": 0.512105090909091,
+        "clips_never_complete": 122,
+        "clips_below_50pct": 536
+      }
+    },
+    "required_hands_by_signer": {
+      "001": 0.78979875,
+      "002": 0.8191424999999999,
+      "003": 0.7571840625000001,
+      "004": 0.7957484375000001,
+      "005": 0.6246381249999999,
+      "006": 0.7098025,
+      "007": 0.7902690625,
+      "008": 0.6925437499999999,
+      "009": 0.6873303125000001,
+      "010": 0.6810346875000001
+    },
+    "signer_spread": 0.19450437499999995,
+    "required_hands_by_class": {
+      "001": 0.8928100000000001,
+      "002": 0.876224,
+      "003": 0.7862260000000001,
+      "004": 0.969258,
+      "005": 1.0,
+      "006": 0.6406620000000001,
+      "007": 0.8379179999999999,
+      "008": 0.9882820000000001,
+      "009": 0.768908,
+      "010": 0.633806,
+      "011": 0.7749699999999998,
+      "012": 0.5158799999999999,
+      "013": 0.9764539999999999,
+      "014": 0.6031360000000001,
+      "015": 0.611958,
+      "016": 0.6992440000000001,
+      "017": 0.6435799999999999,
+      "018": 0.9927799999999999,
+      "019": 0.774526,
+      "020": 0.97268,
+      "021": 0.9388400000000001,
+      "022": 0.8388279999999999,
+      "023": 0.7707260000000001,
+      "024": 0.991476,
+      "025": 0.9569600000000001,
+      "026": 0.856766,
+      "027": 0.8810019999999998,
+      "028": 0.8267200000000001,
+      "029": 0.627048,
+      "030": 0.997876,
+      "031": 0.36599999999999994,
+      "032": 0.8537659999999999,
+      "033": 0.6969399999999999,
+      "034": 0.72738,
+      "035": 0.435852,
+      "036": 0.8285720000000001,
+      "037": 0.974722,
+      "038": 0.980788,
+      "039": 1.0,
+      "040": 0.8075620000000001,
+      "041": 0.9187700000000001,
+      "042": 0.9519860000000001,
+      "043": 0.5202699999999999,
+      "044": 0.022153999999999997,
+      "045": 0.36457800000000007,
+      "046": 0.989662,
+      "047": 1.0,
+      "048": 0.31636600000000004,
+      "049": 0.7524580000000001,
+      "050": 0.214934,
+      "051": 0.627504,
+      "052": 0.955406,
+      "053": 0.683338,
+      "054": 0.035916000000000003,
+      "055": 0.766702,
+      "056": 0.463892,
+      "057": 0.6258659999999999,
+      "058": 0.916726,
+      "059": 0.702896,
+      "060": 0.194202,
+      "061": 0.47675200000000006,
+      "062": 0.822408,
+      "063": 0.4460360000000001,
+      "064": 0.938002
+    },
+    "frames": {
+      "min": 14,
+      "max": 201,
+      "mean": 82.7596875
+    }
+  },
+  "records": []
+}

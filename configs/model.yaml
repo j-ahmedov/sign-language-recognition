@@ -1,0 +1,53 @@
+# Shared encoder + private head. PLAN.md section 4.
+# The encoder and the head are separate parameter groups so that the federated code can
+# aggregate one and not the other (PLAN.md section 6, E5/FedPer).
+
+encoder:
+  type: temporal_transformer
+  input_dim: 345          # 115 landmarks x 3 coords, see configs/data.yaml
+  d_model: 128
+  n_layers: 4
+  n_heads: 4
+  ff_dim: 256
+  dropout: 0.1
+  max_len: 64             # must match temporal.n_frames
+  pooling: mean           # mean | cls
+  # Parameter budget target: 0.5-2 M (PLAN.md section 4).
+
+head:
+  type: linear            # linear | prototypical
+  in_dim: 128
+  n_classes: 64
+  dropout: 0.0
+
+train:
+  epochs: 60
+  batch_size: 32
+  optimizer: adamw
+  lr: 3.0e-4
+  weight_decay: 0.01
+  scheduler: cosine
+  warmup_epochs: 3
+  label_smoothing: 0.1
+  grad_clip: 1.0
+  early_stopping_patience: 12
+  device: auto            # auto -> mps on the M4, else cpu
+  num_workers: 4
+
+augment:
+  # Applied to normalized keypoints, not pixels.
+  enabled: true
+  rotate_deg: 10.0
+  scale_jitter: 0.1
+  translate: 0.05
+  time_mask: 8            # frames
+  dropout_landmarks: 0.05
+
+sanity:
+  # PLAN.md section 8 week 3 gate: the model must overfit a tiny subset before any number
+  # is reported. If it cannot, the pipeline is broken -- debug, do not tune.
+  subset_size: 50
+  epochs: 200
+  target_accuracy: 0.98
+
+seeds: [0, 1, 2]

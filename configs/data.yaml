@@ -1,0 +1,67 @@
+# Dataset paths, landmark selection, temporal resampling and normalization.
+# PLAN.md section 4 (architecture) and section 5 (data).
+
+dataset:
+  name: lsa64
+  # LSA64 "cut" version: 3200 clips, 64 signs, 10 signers, filenames NNN_SSS_RRR.mp4
+  # (sign, signer, repetition). Signer id is parsed from the filename -- see data/dataset.py.
+  url: "https://facundoq.github.io/datasets/lsa64/"
+  archive_name: lsa64_cut.zip
+  # sha256 of lsa64_cut.zip (1,504,519,604 bytes), recorded from the verified download on
+  # 2026-08-30 so later runs detect a truncated or substituted archive.
+  archive_sha256: 0bba209f3f32357233612a374d68da408c7a978e09584ddff834c0c3c96257e3
+  raw_dir: data/raw/lsa64
+  cache_dir: data/cache/lsa64      # one .npy per clip, keyed by clip id
+  n_classes: 64
+  n_signers: 10
+
+landmarks:
+  # MediaPipe Holistic Landmarker groups. Counts are fixed by the model, not by us.
+  pose: 33
+  left_hand: 21
+  right_hand: 21
+  face:
+    # The full FaceMesh is 478 landmarks -- 10x the rest of the body combined, which would
+    # let face geometry (i.e. signer identity) dominate the input and would also cost fps in
+    # the live demo. We keep a ~40-point subset covering lips, eyes/brows and the jaw/chin
+    # outline: the regions that carry the non-manual channel we use *as features*
+    # (PLAN.md section 2 -- not interpreted as linguistic grammar).
+    # The concrete index list is defined and justified per-landmark in
+    # src/signadapt/data/keypoints.py (phase 1), where it can be checked against the real
+    # MediaPipe topology; this file records the choice, the code owns the indices.
+    subset_name: signadapt40
+    n_landmarks: 40
+  # Total per frame: 33 + 21 + 21 + 40 = 115 landmarks x 3 coords = 345 features.
+  total: 115
+
+normalization:
+  anchor: mid_shoulder            # translate so mid-shoulder is the origin
+  scale: shoulder_width           # divide by |left_shoulder - right_shoulder|
+  z_weight: 0.25                  # MediaPipe z is weakly calibrated; keep it, de-weight it
+  missing_hand: mask              # 'mask' (explicit validity flag) -- never a silent zero-fill
+  mirror_left_handed: true        # optional handedness mirroring, see data/normalize.py
+
+temporal:
+  n_frames: 64                    # T, fixed-length clips
+  resample: linear                # linear interpolation over the frame index
+
+extraction:
+  # MediaPipe runs on CPU; 10 cores on the M4. Extraction is a one-time cost (PLAN section 10).
+  n_workers: 8
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5
+  model_complexity: 1
+
+splits:
+  # Signer-aware. Any overlap of signer ids between splits invalidates the thesis
+  # (PLAN.md section 5) -- asserted in tests/test_splits.py.
+  mode: signer_independent        # signer_dependent | signer_independent | loso
+  # LSA64's signer 10 is TWO different people: the original subject was unavailable for the
+  # second recording session (signs 24-64) and was replaced. Verified visually, see
+  # SPLIT_IDENTITY_SIGNERS in data/dataset.py. Set to [10] to drop that signer and run with
+  # 9 clean clients; left empty by default so the fold can be reported both ways.
+  exclude_signers: []
+  train_signers: [1, 2, 3, 4, 5, 6, 7]
+  val_signers: [8]
+  test_signers: [9, 10]
+  val_fraction: 0.1               # used only when mode == signer_dependent

@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signadapt"
+version = "0.1.0"
+description = "Personalized federated learning for signer-adaptive isolated sign language recognition"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "j.ahmedov.m@gmail.com" }]
+
+# Pinned to majors that are known to resolve together on macOS arm64 / Python 3.12.
+dependencies = [
+    "numpy>=1.26,<2.0",          # mediapipe 0.10.x is not numpy-2 clean
+    "pyyaml>=6.0",
+    "torch>=2.2",
+    # mediapipe 1.0.x is unusable on macOS arm64: every vision task (Pose, Hand, Face and
+    # Holistic alike) aborts in DrishtiMetalHelper with "Check failed: service_ Service is
+    # unavailable" because the graph asks for a Metal GPU service the wheel never registers,
+    # and BaseOptions.Delegate.CPU does not avoid it. Verified 2026-08-30 on 1.0.1.
+    # 0.10.30+ have no protobuf pin, so they coexist with flwr; 0.10.21 and older pin
+    # protobuf<5 and conflict with it.
+    "mediapipe>=0.10.30,<1.0",
+    "protobuf>=6.33.5,<7",       # satisfies both flwr and grpcio-health-checking
+    "opencv-python>=4.9",
+    "flwr[simulation]>=1.9",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+demo = [
+    "pyvirtualcam>=0.11",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "D",    # pydocstyle -- docstrings on public API, required by the thesis appendix
+    "ANN",  # type annotations
+    "NPY",  # numpy legacy random / api checks
+]
+ignore = [
+    "D107",    # __init__ docstring: covered by the class docstring
+    "D203",    # incompatible with D211
+    "D213",    # incompatible with D212
+    "ANN401",  # Any is occasionally the honest annotation (config trees)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D100", "D101", "D102", "D103", "ANN201", "ANN001", "NPY002"]
+"src/signadapt/**/__init__.py" = ["D104"]
+# Seeding the *global* legacy numpy RNG is the entire point of this module: third-party
+# code (torch dataloaders, mediapipe, augmentation helpers) reads that global state, and a
+# local Generator cannot make those calls reproducible. NPY002 is wrong here.
+"src/signadapt/utils/seeding.py" = ["NPY002"]
+# Draws here run inside `temporary_seed`, which snapshots and restores the *global* RNG so
+# that a k-shot draw is reproducible regardless of preceding randomness. A local Generator
+# would not participate in that contract.
+"src/signadapt/data/dataset.py" = ["NPY002"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: tests that train a model or extract keypoints (deselect with '-m \"not slow\"')",
+    "needs_data: tests that require the LSA64 dataset to be downloaded",
+]

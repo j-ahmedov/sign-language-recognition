@@ -1,0 +1,32 @@
+# Data is never committed: raw video and cached keypoints are large and re-derivable.
+data/raw/
+data/cache/
+*.npy
+*.npz
+*.mp4
+*.zip
+
+# results/*.json IS committed on purpose -- figures regenerate from it (PLAN.md section 7).
+!results/*.json
+
+# Model weights
+checkpoints/
+*.pt
+*.pth
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

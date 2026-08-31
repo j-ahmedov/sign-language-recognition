@@ -1,0 +1,44 @@
+# Flower simulation: one client per signer. PLAN.md sections 6 and 7.
+
+simulation:
+  backend: ray
+  num_clients: 10           # LSA64 has 10 signers; held-out signers are excluded per fold
+  client_resources:
+    num_cpus: 1
+    num_gpus: 0             # MPS is not shareable across ray workers; clients run on CPU
+  ray_init_args:
+    include_dashboard: false
+
+server:
+  num_rounds: 50
+  fraction_fit: 1.0         # 7-9 training clients: sample all of them every round
+  fraction_evaluate: 1.0
+  min_fit_clients: 2
+  min_available_clients: 2
+
+client:
+  local_epochs: 2
+  batch_size: 32
+  lr: 3.0e-4
+  weight_decay: 0.01
+
+strategy:
+  name: fedper             # fedavg | fedper
+  # fedper aggregates only parameters whose name starts with one of these prefixes.
+  # Everything else stays on the client and is never transmitted
+  # (asserted in tests/test_fedper.py).
+  aggregate_prefixes: ["encoder."]
+  private_prefixes: ["head."]
+
+personalization:
+  # PLAN.md section 6 sweep.
+  k_values: [0, 1, 2, 3, 5, 10, 20]
+  seeds: [0, 1, 2]
+  adapt_epochs: 30
+  adapt_lr: 1.0e-3
+  loso: true               # leave-one-signer-out over every signer
+
+checks:
+  # PLAN.md section 8 week 4: FedAvg on an IID split must land near centralized training,
+  # otherwise a broken FL loop is indistinguishable from a negative research result.
+  iid_tolerance: 0.03      # absolute top-1 difference vs centralized
