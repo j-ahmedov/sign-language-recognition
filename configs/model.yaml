@@ -4,7 +4,12 @@
 
 encoder:
   type: temporal_transformer
-  input_dim: 345          # 115 landmarks x 3 coords, see configs/data.yaml
+  # 115 landmarks x 4 channels [x, y, z, valid]. Phase 0 budgeted 3 channels (345); phase 1
+  # measured that both hands are present in only 51.2% of the frames of two-handed LSA64
+  # signs, so "landmark missing" is a frequent, informative state. Because clips are anchored
+  # on the mid-shoulder, the origin is a plausible hand position and the coordinates alone
+  # cannot express it -- the validity flag has to reach the model as a feature.
+  input_dim: 460
   d_model: 128
   n_layers: 4
   n_heads: 4
@@ -32,7 +37,9 @@ train:
   grad_clip: 1.0
   early_stopping_patience: 12
   device: auto            # auto -> mps on the M4, else cpu
-  num_workers: 4
+  # 0 on purpose: the normalized dataset is stacked into one in-memory tensor before
+  # training (377 MB for all of LSA64), so worker processes would only duplicate it.
+  num_workers: 0
 
 augment:
   # Applied to normalized keypoints, not pixels.

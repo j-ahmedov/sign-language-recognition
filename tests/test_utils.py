@@ -96,7 +96,8 @@ def test_input_dim_matches_landmark_counts():
     lm = cfg["landmarks"]
     total = lm["pose"] + lm["left_hand"] + lm["right_hand"] + lm["face"]["n_landmarks"]
     assert total == lm["total"]
-    assert cfg["encoder"]["input_dim"] == total * 3
+    # 4 channels, not 3: [x, y, z, valid]. See the comment in configs/model.yaml.
+    assert cfg["encoder"]["input_dim"] == total * 4
     assert cfg["encoder"]["max_len"] == cfg["temporal"]["n_frames"]
     assert cfg["head"]["n_classes"] == cfg["dataset"]["n_classes"]
 

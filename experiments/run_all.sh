@@ -8,17 +8,14 @@ PYTHON="${PYTHON:-.venv/bin/python}"
 SEEDS="${SEEDS:-0 1 2}"
 
 echo "== phase 1: data =============================================="
-# $PYTHON -m signadapt.data.download  --config configs/data.yaml
-# $PYTHON -m signadapt.data.keypoints --config configs/data.yaml
-echo "not implemented yet (phase 1)"
+$PYTHON -m signadapt.data.download  --config configs/data.yaml
+$PYTHON -m signadapt.data.keypoints --config configs/data.yaml
 
 echo "== phase 2: sanity gate + centralized baselines E1, E2 ========"
-# $PYTHON -m signadapt.train.centralized --experiment sanity --config configs/model.yaml
-# for s in $SEEDS; do
-#   $PYTHON -m signadapt.train.centralized --experiment E1 --seed "$s"
-#   $PYTHON -m signadapt.train.centralized --experiment E2 --seed "$s"
-# done
-echo "not implemented yet (phase 2)"
+# --experiment all runs the overfit gate first and exits non-zero if it fails, so
+# `set -e` stops the whole script rather than letting later phases build on a broken
+# pipeline (PLAN.md section 8, week 3).
+$PYTHON -m signadapt.train.centralized --experiment all --seeds $SEEDS
 
 echo "== phase 3: federated FedAvg + IID correctness check + E3 ====="
 echo "not implemented yet (phase 3)"
