@@ -6,7 +6,7 @@ PIP    ?= .venv/bin/pip
 SEED   ?= 0
 CONFIG ?= configs
 
-.PHONY: help setup data overlay sanity train federated local figures demo test lint format clean
+.PHONY: help setup data overlay sanity train federated local sweep figures demo test lint format clean
 
 CLIPS ?= 001_001_001 010_007_004 030_002_001 045_010_002 060_006_003
 
@@ -19,6 +19,7 @@ help:
 	@echo "  train      centralized baselines E1 and E2 (E6 lands with the k-sweep)"
 	@echo "  federated  IID correctness check, then FedAvg over one client per signer"
 	@echo "  local      E3 local-only: each held-out signer trains from scratch on k clips"
+	@echo "  sweep      E4/E5/E6 k-shot adaptation over every leave-one-signer-out fold"
 	@echo "  figures    regenerate every figure from committed results/*.json  [phase 5]"
 	@echo "  demo       webcam -> keypoints -> caption -> virtual camera       [phase 6]"
 	@echo "  test       pytest (signer-leakage guard lives here)"
@@ -61,6 +62,15 @@ local:
 	$(PYTHON) -m signadapt.train.local_only --config $(CONFIG)/fl.yaml \
 		--model-config $(CONFIG)/model.yaml --data-config $(CONFIG)/data.yaml \
 		$(if $(SEEDS),--seeds $(SEEDS),)
+
+# METHODS/SEEDS override the sweep; pretrainings are cached under data/checkpoints/pretrain
+# so re-running a method or adding a k value does not repeat the federated runs.
+METHODS ?= E5 E4 E6
+
+sweep:
+	$(PYTHON) -m signadapt.personalize.adapt --config $(CONFIG)/fl.yaml \
+		--model-config $(CONFIG)/model.yaml --data-config $(CONFIG)/data.yaml \
+		--methods $(METHODS) $(if $(SEEDS),--seeds $(SEEDS),)
 
 figures:
 	$(PYTHON) -m signadapt.figures --results results --out figures

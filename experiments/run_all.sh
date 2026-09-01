@@ -24,8 +24,14 @@ $PYTHON -m signadapt.federated.simulation --experiment all --seeds $SEEDS
 $PYTHON -m signadapt.train.local_only --seeds $SEEDS
 
 echo "== phase 4: FedPer E5, E4, E6 and the k-sweep ================="
-echo "not implemented yet (phase 4)"
+# One federated pretraining per (method, fold, seed), cached under data/checkpoints/pretrain.
+# Budget about 90 minutes per seed on an M4.
+for s in $SEEDS; do
+  $PYTHON -m signadapt.personalize.adapt --methods E5 E4 E6 --seed "$s"
+done
 
 echo "== phase 5: figures from committed JSON ======================="
-# $PYTHON -m signadapt.figures --results results --out figures
-echo "not implemented yet (phase 5)"
+# Reads only results/*.json -- no model, no dataset, no GPU. This step is what makes the
+# thesis reproducible from a checkout: figures/summary.json holds every number the figures
+# draw, and the prose quotes that file rather than a number someone typed (PLAN.md section 7).
+$PYTHON -m signadapt.figures --results results --out figures

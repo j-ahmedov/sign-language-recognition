@@ -18,8 +18,8 @@ run things.
 | 1 | MediaPipe extraction, normalization, signer-aware splits, leakage test | **done** |
 | 2 | Encoder + head, sanity gate, centralized E1/E2 | **done** |
 | 3 | Flower simulation, FedAvg, IID correctness check, E3 | **done** |
-| 4 | FedPer (E5), E4, E6, k-sweep | not started |
-| 5 | Figures regenerated from `results/*.json` | not started |
+| 4 | FedPer (E5), E4, E6, k-sweep | **done** |
+| 5 | Figures regenerated from `results/*.json` | **done** |
 | 6 | Live webcam demo through a virtual camera | not started |
 
 ## The gap (RQ1)
@@ -151,6 +151,110 @@ The consequence for RQ3 is that on LSA64 the only region where federation can de
 help is **k ∈ {0, 1}**. That is a finding about the benchmark, and it is the strongest
 argument yet for getting AUTSL access — see PLAN.md §5.
 
+## The adaptation sweep (phase 4)
+
+Every method is measured on the same folds, the same k values and the same query sets:
+leave-one-signer-out over all 10 signers x 3 seeds = 30 held-out-signer runs per cell.
+`+/-` is the std **across those 30 folds**, which is what PLAN.md section 6 asks for, since
+inter-signer variance is itself a finding.
+
+| k | E3 local-only | **E4** FedAvg + finetune | **E5** FedPer | **E6** central + head |
+|---|---|---|---|---|
+| 0 | 1.7 ± 0.9 % | **86.7 ± 5.0 %** | 1.8 ± 1.5 % | 1.5 ± 1.5 % |
+| 1 | 63.2 ± 6.0 % | **96.0 ± 2.6 %** | 64.0 ± 4.8 % | 64.3 ± 5.0 % |
+| 2 | 86.6 ± 5.6 % | **97.2 ± 1.8 %** | 91.0 ± 4.2 % | 88.7 ± 3.4 % |
+| 3 | 92.8 ± 4.1 % | **98.1 ± 1.7 %** | 95.3 ± 3.1 % | 93.5 ± 3.2 % |
+| 4 | 94.0 ± 3.5 % | **97.9 ± 1.8 %** | 96.2 ± 2.5 % | 94.1 ± 2.6 % |
+
+Reference lines: E1 ceiling 95.3 %, E2 signer-independent 86.4 %.
+
+### RQ3: the answer is negative for FedPer and positive for FedAvg
+
+| method | reaches E2 (86.4 %) | reaches E1 (95.3 %) |
+|---|---|---|
+| E3 local-only | k=2 | never (k≤4) |
+| **E4 FedAvg + finetune** | **k=0** | **k=1** |
+| E5 FedPer | k=2 | k=3, by 0.00 pts — a dead heat, not a clearing |
+| E6 centralized + head | k=2 | never (k≤4) |
+
+Paired per-fold differences, n=30 folds:
+
+| comparison | k=1 | k=2 | k=3 | k=4 |
+|---|---|---|---|---|
+| E4 − E5 | **+32.1** (30/30) | **+6.2** (27/30) | **+2.8** (21/30) | **+1.7** (17/30) |
+| E5 − E3 | +0.8 (13/30) | **+4.4** (24/30) | **+2.4** (21/30) | **+2.2** (16/30) |
+| E5 − E6 | −0.3 (13/30) | **+2.3** (21/30) | +1.8 (17/30) | **+2.1** (18/30) |
+
+**E4 beats E5 at every k, decisively.** The proposed method loses to the standard baseline.
+The reason is structural rather than incidental: E4 inherits a classifier trained on the
+other signers and starts at 86.7 % zero-shot, while E5 starts at chance because under FedPer
+no head exists until the new signer trains one. E5 needs k=2 to reach where E4 began.
+
+**Federation does buy something over training alone**, just not much: E5 − E3 is +4.4 points
+at k=2 and shrinks to +2.2 by k=4, and at k=1 it is indistinguishable from zero. The
+crossover PLAN.md section 10 asked to be reported is **k=2 to k=3**; outside that window a
+signer training alone is as good.
+
+**E5 slightly exceeds E6, which was specified as its upper bound.** +2.1 points at k=4 across
+30 folds. Two explanations remain unseparated: federated averaging may regularize the encoder
+toward signer-invariance, or E5's encoder simply gets more optimization (50 rounds x 2 local
+epochs) than E6's early-stopped one (mean 21 epochs). A matched-budget E6 would separate them.
+
+### Inter-signer variance
+
+At k=2, spread between the worst and best held-out signer (seeds averaged within a signer
+first, so this is signer variation rather than run-to-run noise): E4 3.6 points,
+**E5 10.9 points**, E6 3.6 points. Signer 8 is the hardest for E3, E4 and E5 alike; only
+E6 ranks another signer (3) marginally lower, which is itself a symptom of how flat E6's
+per-signer profile is. E5's much larger spread matters for
+a deployment claim: a frozen shared encoder plus a small private head works well for most
+people and noticeably worse for some, while full fine-tuning evens that out.
+
+Signer 10, the two-person client, is not an outlier once personalized: at k=2, E5 scores
+94.3 ± 4.8 % on it versus 90.6 ± 4.1 % on the others.
+
+### Communication
+
+| | tensors sent per client per round | fp32 payload |
+|---|---|---|
+| FedAvg | 57 | 2.42 MB |
+| FedPer | 55 | 2.39 MB |
+
+FedPer withholds the 8,256-parameter head, so it saves 1.4 % of the payload (fp32, MB =
+10⁶ bytes; `figures/fig6_communication_cost`). **On this
+architecture the privacy argument for FedPer does not come with a communication saving.**
+
+## Figures
+
+`make figures` regenerates all six from `results/*.json` alone — no dataset, no model, no
+GPU, about four seconds. It also writes `figures/summary.json`, which records every number
+each figure draws together with the result files it came from; the tables above are read out
+of that file rather than typed, so prose and figures cannot drift apart.
+
+| Figure | Shows | Answers |
+|---|---|---|
+| `fig1_adaptation_curve` | top-1 against k, one line per method, E1/E2 as reference lines | RQ2, RQ3 — PLAN.md §6's "money chart" |
+| `fig2_generalization_gap` | E1 vs E2, and zero-shot accuracy for each of the 10 held-out signers | RQ1 |
+| `fig3_paired_differences` | E5−E3, E4−E5, E5−E6 paired on `(seed, signer, k)` | RQ3 |
+| `fig4_signer_spread` | every one of the 30 folds per method per k, not just the mean | PLAN.md §6, inter-signer variance |
+| `fig5_federated_convergence` | per-round client accuracy, and the IID correctness gate | PLAN.md §8 week 4 |
+| `fig6_communication_cost` | encoder vs head share of the per-round payload | RQ4 |
+
+Each is written as both PNG and PDF. Three properties are enforced by `tests/test_figures.py`
+rather than by care: a run whose `status` is not `ok` never reaches a figure, a missing
+experiment raises instead of leaving a gap that reads as "not measured", and the same JSON
+produces byte-identical images, so regenerating is a no-op in git.
+
+Two things the figures do differently from a naive reading of the numbers, both because the
+first version was misleading:
+
+- **Crossover points carry their margin.** E5 meets the E1 ceiling at k=3 by 0.00 points.
+  Reporting the k alone would read as "E5 clears the ceiling at k=3"; it is a tie.
+- **Two spreads are reported, not one.** Pooling all 30 folds answers "how much does a new
+  signer's result vary" (n=30). Averaging seeds within a signer first answers "how much do
+  signers differ" (n=10) and is smaller at every k. The curve's error bars are the first;
+  the inter-signer numbers above are the second.
+
 ## Setup
 
 ```bash
@@ -170,6 +274,7 @@ Tested on macOS 15 (Apple M4, 16 GB) with Python 3.12.
 | `make train` | Sanity gate, then centralized baselines E1 and E2 over the configured seeds |
 | `make federated` | IID correctness check, then FedAvg over one client per signer |
 | `make local` | E3 local-only: each held-out signer trains from scratch on k of their clips |
+| `make sweep` | E4/E5/E6 k-shot adaptation over every leave-one-signer-out fold |
 | `make figures` | Rebuild every figure from committed `results/*.json` |
 | `make demo` | Webcam → keypoints → caption → virtual camera |
 | `make test` | pytest, including the signer-leakage guard |

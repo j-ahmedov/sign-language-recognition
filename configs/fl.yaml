@@ -45,7 +45,11 @@ personalization:
   query_repetitions: 1
   seeds: [0, 1, 2]
   adapt_epochs: 30
-  adapt_lr: 1.0e-3
+  adapt_lr: 1.0e-3         # E5/E6: a head starting from scratch
+  # E4 fine-tunes the whole pretrained encoder. At the head's rate that encoder is simply
+  # destroyed, and reporting E4 under a rate that wrecks it would rig the comparison against
+  # the baseline the proposed method has to beat. This is the rate it was pretrained at.
+  adapt_lr_full: 3.0e-4
   loso: true               # leave-one-signer-out over every signer
 
 checks:

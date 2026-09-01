@@ -96,6 +96,30 @@ def make_loader(
     )
 
 
+def eval_frozen_submodules(model: nn.Module) -> list[str]:
+    """Put every top-level submodule whose parameters are all frozen into eval mode.
+
+    ``Module.train()`` switches the whole tree on, including a submodule nobody is training.
+    For E5 and E6 that submodule is the encoder, used as a fixed feature extractor: leaving
+    its dropout active would feed the head a different embedding of the same clip on every
+    epoch, noise the head cannot compensate for by adapting the encoder, because it is not
+    allowed to. A frozen module should behave the way it will at inference.
+
+    Args:
+        model: The model, already switched to train mode.
+
+    Returns:
+        The names of the submodules switched back to eval, for the record.
+    """
+    frozen = []
+    for name, module in model.named_children():
+        parameters = list(module.parameters())
+        if parameters and not any(p.requires_grad for p in parameters):
+            module.eval()
+            frozen.append(name)
+    return frozen
+
+
 def param_groups(model: nn.Module, weight_decay: float) -> list[dict[str, Any]]:
     """Split trainable parameters into decayed and non-decayed groups.
 
@@ -271,6 +295,7 @@ def train_model(
 
     for epoch in range(n_epochs):
         model.train()
+        eval_frozen_submodules(model)
         total_loss, total_correct, total_seen = 0.0, 0, 0
         for x, y in train_loader:
             x = augment_batch(x, aug_cfg, generator).to(device)

@@ -7,12 +7,39 @@ into every results file, so a JSON result is always self-describing.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-__all__ = ["load_config", "merge_configs", "get_in", "set_in", "apply_overrides"]
+__all__ = [
+    "apply_overrides",
+    "config_fingerprint",
+    "get_in",
+    "load_config",
+    "merge_configs",
+    "set_in",
+]
+
+
+def config_fingerprint(*parts: Any) -> str:
+    """Hash the configuration a cached artefact was produced under.
+
+    Anything expensive enough to cache is expensive enough that it will be reused after the
+    config changed, and a stale reuse is silent: the file loads, the shapes match, and the
+    run reports a number produced under settings nobody intended. Storing this alongside a
+    cached artefact turns that into a recompute instead.
+
+    Args:
+        *parts: JSON-serializable config fragments. Order matters.
+
+    Returns:
+        A 16-character hex digest.
+    """
+    payload = json.dumps(parts, sort_keys=True, default=str).encode()
+    return hashlib.sha256(payload).hexdigest()[:16]
 
 
 def load_config(*paths: str | Path) -> dict[str, Any]:

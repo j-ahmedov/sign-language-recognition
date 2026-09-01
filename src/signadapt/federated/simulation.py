@@ -27,13 +27,19 @@ from flwr.common import Context, ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server import ServerApp, ServerAppComponents, ServerConfig
 from flwr.simulation import run_simulation
 
-from signadapt.data.dataset import ClipRecord, KeypointDataset, load_records, make_splits
+from signadapt.data.dataset import (
+    ClipRecord,
+    KeypointDataset,
+    Split,
+    load_records,
+    make_splits,
+)
 from signadapt.federated.client import make_client_fn, write_partition
 from signadapt.federated.parameters import get_parameters, set_parameters, shared_keys
 from signadapt.federated.strategy import build_strategy
 from signadapt.models.model import HEAD_PREFIX, build_model
 from signadapt.train.loop import evaluate_tensors, resolve_device, stack_dataset
-from signadapt.utils.config import apply_overrides, load_config
+from signadapt.utils.config import apply_overrides, config_fingerprint, load_config
 from signadapt.utils.metrics import format_mean_std, mean_std
 from signadapt.utils.results import ResultsLogger, load_results
 from signadapt.utils.seeding import seed_everything, temporary_seed
@@ -173,23 +179,29 @@ def run_simulation_round_trip(
     data_cfg: dict[str, Any],
     fl_cfg: dict[str, Any],
     specs: list[dict[str, Any]],
-    val_data: tuple[torch.Tensor, torch.Tensor],
+    val_data: tuple[torch.Tensor, torch.Tensor] | None,
     seed: int,
     on_round: Any = None,
 ) -> dict[str, Any]:
-    """Run one Flower simulation and return its history and best global parameters.
+    """Run one Flower simulation and return its history and chosen global parameters.
 
-    Model selection is server-side and centralized: the global parameters are evaluated on
-    the held-out validation signer after every round, and the best round's parameters are
-    returned. Selecting on the clients' own partitions would select for fitting the training
+    With ``val_data``, model selection is server-side and centralized: the global parameters
+    are scored on the held-out validation signer after every round and the best round wins.
+    Selecting on the clients' own partitions would instead select for fitting the training
     signers, which is the opposite of what E2 and E5 are about.
+
+    ``val_data=None`` disables selection and returns the final round. That is the setting
+    phase 4 pretrains under, and it is a fairness requirement rather than a shortcut: a
+    FedPer server holds no head, so it *cannot* score a global model on a validation signer.
+    Letting FedAvg pick its best round while FedPer must take its last one would hand E4 an
+    advantage that has nothing to do with the method being compared.
 
     Args:
         model_cfg: Loaded model config.
         data_cfg: Loaded data config.
         fl_cfg: Loaded ``configs/fl.yaml``.
         specs: Client specs from :func:`write_partitions`.
-        val_data: ``(X, y)`` for server-side validation.
+        val_data: ``(X, y)`` for server-side validation, or ``None`` to take the final round.
         seed: Seed for the shared initial parameters and the clients.
         on_round: Called with each round's record.
 
@@ -207,7 +219,7 @@ def run_simulation_round_trip(
     keys = shared_keys(reference, prefixes)
     initial = get_parameters(reference, prefixes)
 
-    state: dict[str, Any] = {"best_val": float("-inf"), "best_round": -1, "best_arrays": initial}
+    state: dict[str, Any] = {"best_val": float("nan"), "best_round": -1, "best_arrays": initial}
     server_model = build_model(model_cfg).to(device)
 
     def evaluate_fn(
@@ -216,7 +228,8 @@ def run_simulation_round_trip(
         del config
         set_parameters(server_model, arrays, prefixes)
         result = evaluate_tensors(server_model, val_data, model_cfg, device=device)
-        if result.top1 > state["best_val"]:
+        best = state["best_val"]
+        if np.isnan(best) or result.top1 > best:
             state.update(
                 best_val=result.top1,
                 best_round=server_round,
@@ -235,7 +248,7 @@ def run_simulation_round_trip(
         min_evaluate_clients=min(int(server_cfg.get("min_fit_clients", 2)), len(specs)),
         min_available_clients=len(specs),
         initial_parameters=ndarrays_to_parameters(initial),
-        evaluate_fn=evaluate_fn,
+        evaluate_fn=evaluate_fn if val_data is not None else None,
         on_fit_config_fn=lambda server_round: {
             "server_round": server_round,
             "local_epochs": int(client_cfg["local_epochs"]),
@@ -260,17 +273,103 @@ def run_simulation_round_trip(
         backend_config={"client_resources": dict(sim_cfg["client_resources"])},
     )
 
+    final = (
+        parameters_to_ndarrays(strategy.latest_parameters)
+        if strategy.latest_parameters is not None
+        else state["best_arrays"]
+    )
+    chosen = state["best_arrays"] if val_data is not None else final
     return {
         "rounds": strategy.rounds,
-        "best_round": state["best_round"],
+        "best_round": state["best_round"] if val_data is not None else len(strategy.rounds),
         "best_val_top1": state["best_val"],
-        "best_arrays": state["best_arrays"],
-        "final_arrays": parameters_to_ndarrays(strategy.latest_parameters)
-        if strategy.latest_parameters is not None
-        else state["best_arrays"],
+        "best_arrays": chosen,
+        "final_arrays": final,
         "keys": list(keys),
         "prefixes": list(prefixes),
     }
+
+
+def federated_pretrain(
+    records: list[ClipRecord],
+    fold: Split,
+    *,
+    model_cfg: dict[str, Any],
+    data_cfg: dict[str, Any],
+    fl_cfg: dict[str, Any],
+    seed: int = 0,
+    work_dir: str = "data/cache/partitions",
+    cache_dir: str | None = "data/checkpoints/pretrain",
+) -> dict[str, Any]:
+    """Federate over one LOSO fold's training signers and return the shared parameters.
+
+    The held-out signer's clips are never given to any client, which is what makes the
+    personalized result in phase 4 mean anything -- an encoder that had already seen the
+    "new" signer would be measuring memory, not adaptation.
+
+    No validation-based round selection is done: see :func:`run_simulation_round_trip` for
+    why taking the final round is the fair rule when FedAvg and FedPer are being compared.
+
+    Args:
+        records: All records.
+        fold: The LOSO fold; only ``fold.train`` is used.
+        model_cfg: Loaded model config.
+        data_cfg: Loaded data config.
+        fl_cfg: Loaded FL config, already forced to the intended strategy.
+        seed: Seed.
+        work_dir: Where client partitions are materialized.
+        cache_dir: Where finished pretrainings are cached, or ``None`` to disable. A sweep
+            reuses one pretraining across every k, and a re-run reuses it across invocations;
+            without the cache the k-sweep would repeat a five-minute simulation five times
+            for results that cannot differ.
+
+    Returns:
+        ``{"state": {key: tensor}, "prefixes": [...], "n_rounds": int, "clients": [...],
+        "cached": bool}``.
+    """
+    strategy_name = fl_cfg["strategy"]["name"]
+    tag = f"{strategy_name}_{fold.name}_seed{seed}"
+    cache_path = Path(cache_dir) / f"{tag}.pt" if cache_dir else None
+    # A cache keyed only by (strategy, fold, seed) would happily hand a 50-round experiment
+    # the 2-round artefact a smoke test left behind: same filename, same shapes, silently
+    # wrong numbers. The fingerprint covers everything that changes what the file contains.
+    fingerprint = config_fingerprint(
+        model_cfg["encoder"], model_cfg["head"], fl_cfg["server"], fl_cfg["client"],
+        fl_cfg["strategy"], fold.signers["train"], seed,
+    )
+    if cache_path is not None and cache_path.exists():
+        payload = torch.load(cache_path, weights_only=False)
+        if payload.get("fingerprint") == fingerprint:
+            return {**payload, "cached": True}
+        print(f"[pretrain] {tag}: cached under a different config, recomputing")
+
+    parts = partition_indices(records, fold.train, "signer")
+    specs = write_partitions(records, parts, data_cfg, Path(work_dir) / tag)
+    outcome = run_simulation_round_trip(
+        model_cfg=model_cfg,
+        data_cfg=data_cfg,
+        fl_cfg=fl_cfg,
+        specs=specs,
+        val_data=None,
+        seed=seed,
+    )
+    payload = {
+        "state": {
+            key: torch.from_numpy(np.asarray(array))
+            for key, array in zip(outcome["keys"], outcome["best_arrays"], strict=True)
+        },
+        "prefixes": outcome["prefixes"],
+        "n_rounds": len(outcome["rounds"]),
+        "clients": [int(s["signer"]) for s in specs],
+        "strategy": strategy_name,
+        "fold": fold.name,
+        "seed": seed,
+        "fingerprint": fingerprint,
+    }
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(payload, cache_path)
+    return {**payload, "cached": False}
 
 
 def _components(context: Context, strategy: Any, num_rounds: int) -> ServerAppComponents:

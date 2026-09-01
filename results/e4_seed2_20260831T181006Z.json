@@ -1,0 +1,1065 @@
+{
+  "schema_version": 1,
+  "experiment": "E4",
+  "tag": null,
+  "description": "FedAvg pretraining across the training signers, then fine-tuning the whole model on k clips of the held-out signer (PLAN.md section 6).",
+  "seed": 2,
+  "status": "ok",
+  "error": null,
+  "created_utc": "2026-08-31T18:10:06.770362+00:00",
+  "duration_s": 2060.833,
+  "environment": {
+    "python": "3.12.6",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "hostname": "MacBook-Pro-14-J.local",
+    "cpu_count": 10,
+    "torch_device": "mps",
+    "versions": {
+      "numpy": "1.26.4",
+      "torch": "2.13.0",
+      "flwr": "1.35.0",
+      "mediapipe": "0.10.35",
+      "cv2": "4.11.0"
+    },
+    "git": {
+      "commit": "9fa24517a1446354aa6a76b93ee0ad2daa0a3974",
+      "dirty": true
+    }
+  },
+  "config": {
+    "model": {
+      "encoder": {
+        "type": "temporal_transformer",
+        "input_dim": 460,
+        "d_model": 128,
+        "n_layers": 4,
+        "n_heads": 4,
+        "ff_dim": 256,
+        "dropout": 0.1,
+        "max_len": 64,
+        "pooling": "mean"
+      },
+      "head": {
+        "type": "linear",
+        "in_dim": 128,
+        "n_classes": 64,
+        "dropout": 0.0
+      },
+      "train": {
+        "epochs": 30,
+        "batch_size": 32,
+        "optimizer": "adamw",
+        "lr": 0.0003,
+        "weight_decay": 0.01,
+        "scheduler": "cosine",
+        "warmup_epochs": 3,
+        "label_smoothing": 0.1,
+        "grad_clip": 1.0,
+        "early_stopping_patience": 0,
+        "device": "auto",
+        "num_workers": 0
+      },
+      "augment": {
+        "enabled": true,
+        "rotate_deg": 10.0,
+        "scale_jitter": 0.1,
+        "translate": 0.05,
+        "time_mask": 8,
+        "dropout_landmarks": 0.05
+      },
+      "sanity": {
+        "subset_size": 50,
+        "epochs": 200,
+        "target_accuracy": 0.98
+      },
+      "seeds": [
+        0,
+        1,
+        2
+      ]
+    },
+    "data": {
+      "dataset": {
+        "name": "lsa64",
+        "url": "https://facundoq.github.io/datasets/lsa64/",
+        "archive_name": "lsa64_cut.zip",
+        "archive_sha256": "0bba209f3f32357233612a374d68da408c7a978e09584ddff834c0c3c96257e3",
+        "raw_dir": "data/raw/lsa64",
+        "cache_dir": "data/cache/lsa64",
+        "n_classes": 64,
+        "n_signers": 10
+      },
+      "landmarks": {
+        "pose": 33,
+        "left_hand": 21,
+        "right_hand": 21,
+        "face": {
+          "subset_name": "signadapt40",
+          "n_landmarks": 40
+        },
+        "total": 115
+      },
+      "normalization": {
+        "anchor": "mid_shoulder",
+        "scale": "shoulder_width",
+        "z_weight": 0.25,
+        "missing_hand": "mask",
+        "mirror_left_handed": true
+      },
+      "temporal": {
+        "n_frames": 64,
+        "resample": "linear"
+      },
+      "extraction": {
+        "n_workers": 8,
+        "min_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+        "model_complexity": 1
+      },
+      "splits": {
+        "mode": "signer_independent",
+        "exclude_signers": [],
+        "train_signers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "val_signers": [
+          8
+        ],
+        "test_signers": [
+          9,
+          10
+        ],
+        "val_fraction": 0.1
+      }
+    },
+    "fl": {
+      "simulation": {
+        "backend": "ray",
+        "num_clients": 10,
+        "client_resources": {
+          "num_cpus": 1,
+          "num_gpus": 0
+        },
+        "ray_init_args": {
+          "include_dashboard": false
+        },
+        "client_device": "cpu"
+      },
+      "server": {
+        "num_rounds": 50,
+        "fraction_fit": 1.0,
+        "fraction_evaluate": 0.0,
+        "min_fit_clients": 2,
+        "min_available_clients": 2
+      },
+      "client": {
+        "local_epochs": 2,
+        "batch_size": 32,
+        "lr": 0.0003,
+        "weight_decay": 0.01
+      },
+      "strategy": {
+        "name": "fedper",
+        "aggregate_prefixes": [
+          "encoder."
+        ],
+        "private_prefixes": [
+          "head."
+        ]
+      },
+      "personalization": {
+        "k_values": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "query_repetitions": 1,
+        "seeds": [
+          0,
+          1,
+          2
+        ],
+        "adapt_epochs": 30,
+        "adapt_lr": 0.001,
+        "adapt_lr_full": 0.0003,
+        "loso": true
+      },
+      "checks": {
+        "iid_tolerance": 0.03
+      }
+    }
+  },
+  "metrics": {
+    "by_k": {
+      "0": {
+        "mean": 0.8765625,
+        "std": 0.055340839413081225,
+        "min": 0.78125,
+        "max": 0.9375,
+        "n": 10
+      },
+      "1": {
+        "mean": 0.9765625,
+        "std": 0.02240188871625684,
+        "min": 0.9375,
+        "max": 1.0,
+        "n": 10
+      },
+      "2": {
+        "mean": 0.984375,
+        "std": 0.01473139127471974,
+        "min": 0.96875,
+        "max": 1.0,
+        "n": 10
+      },
+      "3": {
+        "mean": 0.9875,
+        "std": 0.014358384116760648,
+        "min": 0.96875,
+        "max": 1.0,
+        "n": 10
+      },
+      "4": {
+        "mean": 0.9859375,
+        "std": 0.013681172433920518,
+        "min": 0.96875,
+        "max": 1.0,
+        "n": 10
+      }
+    },
+    "k_values": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "skipped_k": []
+  },
+  "records": [
+    {
+      "k": 0,
+      "signer": 1,
+      "participant": "1",
+      "top1": 0.9375,
+      "top5": 0.984375,
+      "loss": 0.39095771312713623,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9285714285714286,
+        "two_handed": 0.9545454545454546
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 1,
+      "participant": "1",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.24387000501155853,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6770708560943604
+    },
+    {
+      "k": 2,
+      "signer": 1,
+      "participant": "1",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.22806915640830994,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.8940887451171875
+    },
+    {
+      "k": 3,
+      "signer": 1,
+      "participant": "1",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.21216827630996704,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.296388864517212
+    },
+    {
+      "k": 4,
+      "signer": 1,
+      "participant": "1",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.20535673201084137,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.4631428718566895
+    },
+    {
+      "k": 0,
+      "signer": 2,
+      "participant": "2",
+      "top1": 0.921875,
+      "top5": 1.0,
+      "loss": 0.4273277819156647,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 2,
+      "participant": "2",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.22615979611873627,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6398539543151855
+    },
+    {
+      "k": 2,
+      "signer": 2,
+      "participant": "2",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.20764270424842834,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.919313907623291
+    },
+    {
+      "k": 3,
+      "signer": 2,
+      "participant": "2",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.1907525211572647,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.189515829086304
+    },
+    {
+      "k": 4,
+      "signer": 2,
+      "participant": "2",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.1895940601825714,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.524079084396362
+    },
+    {
+      "k": 0,
+      "signer": 3,
+      "participant": "3",
+      "top1": 0.78125,
+      "top5": 0.984375,
+      "loss": 0.7312114834785461,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.7619047619047619,
+        "two_handed": 0.8181818181818182
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 3,
+      "participant": "3",
+      "top1": 0.953125,
+      "top5": 1.0,
+      "loss": 0.3003346920013428,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 1.643273115158081
+    },
+    {
+      "k": 2,
+      "signer": 3,
+      "participant": "3",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.24433714151382446,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 2.9009668827056885
+    },
+    {
+      "k": 3,
+      "signer": 3,
+      "participant": "3",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.2542080879211426,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 4.200069189071655
+    },
+    {
+      "k": 4,
+      "signer": 3,
+      "participant": "3",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.25009089708328247,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 5.494408130645752
+    },
+    {
+      "k": 0,
+      "signer": 4,
+      "participant": "4",
+      "top1": 0.8125,
+      "top5": 1.0,
+      "loss": 0.621623158454895,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.7380952380952381,
+        "two_handed": 0.9545454545454546
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 4,
+      "participant": "4",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.24178418517112732,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6219940185546875
+    },
+    {
+      "k": 2,
+      "signer": 4,
+      "participant": "4",
+      "top1": 0.984375,
+      "top5": 1.0,
+      "loss": 0.21836858987808228,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.9374730587005615
+    },
+    {
+      "k": 3,
+      "signer": 4,
+      "participant": "4",
+      "top1": 0.984375,
+      "top5": 1.0,
+      "loss": 0.20284298062324524,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.218080043792725
+    },
+    {
+      "k": 4,
+      "signer": 4,
+      "participant": "4",
+      "top1": 0.984375,
+      "top5": 1.0,
+      "loss": 0.22438745200634003,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.477105140686035
+    },
+    {
+      "k": 0,
+      "signer": 5,
+      "participant": "5",
+      "top1": 0.890625,
+      "top5": 0.984375,
+      "loss": 0.5588075518608093,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8809523809523809,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 5,
+      "participant": "5",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.2959197163581848,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6479549407958984
+    },
+    {
+      "k": 2,
+      "signer": 5,
+      "participant": "5",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.26752969622612,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.8881680965423584
+    },
+    {
+      "k": 3,
+      "signer": 5,
+      "participant": "5",
+      "top1": 0.96875,
+      "top5": 0.984375,
+      "loss": 0.26016145944595337,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.232890844345093
+    },
+    {
+      "k": 4,
+      "signer": 5,
+      "participant": "5",
+      "top1": 0.984375,
+      "top5": 0.984375,
+      "loss": 0.24789190292358398,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.5153961181640625
+    },
+    {
+      "k": 0,
+      "signer": 6,
+      "participant": "6",
+      "top1": 0.921875,
+      "top5": 0.984375,
+      "loss": 0.39408791065216064,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9285714285714286,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 6,
+      "participant": "6",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.2497694194316864,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.638775110244751
+    },
+    {
+      "k": 2,
+      "signer": 6,
+      "participant": "6",
+      "top1": 0.984375,
+      "top5": 1.0,
+      "loss": 0.2184453159570694,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.8799891471862793
+    },
+    {
+      "k": 3,
+      "signer": 6,
+      "participant": "6",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.21820558607578278,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.206369161605835
+    },
+    {
+      "k": 4,
+      "signer": 6,
+      "participant": "6",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.23224185407161713,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.4829888343811035
+    },
+    {
+      "k": 0,
+      "signer": 7,
+      "participant": "7",
+      "top1": 0.859375,
+      "top5": 1.0,
+      "loss": 0.5713623762130737,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8095238095238095,
+        "two_handed": 0.9545454545454546
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 7,
+      "participant": "7",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.22126680612564087,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6326777935028076
+    },
+    {
+      "k": 2,
+      "signer": 7,
+      "participant": "7",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.21453502774238586,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.9366519451141357
+    },
+    {
+      "k": 3,
+      "signer": 7,
+      "participant": "7",
+      "top1": 0.984375,
+      "top5": 1.0,
+      "loss": 0.18605414032936096,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.16429591178894
+    },
+    {
+      "k": 4,
+      "signer": 7,
+      "participant": "7",
+      "top1": 0.984375,
+      "top5": 1.0,
+      "loss": 0.1900177299976349,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9761904761904762,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.4915289878845215
+    },
+    {
+      "k": 0,
+      "signer": 8,
+      "participant": "8",
+      "top1": 0.828125,
+      "top5": 0.984375,
+      "loss": 0.6155773997306824,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.7380952380952381,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 8,
+      "participant": "8",
+      "top1": 0.9375,
+      "top5": 1.0,
+      "loss": 0.3483434021472931,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9047619047619048,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6312897205352783
+    },
+    {
+      "k": 2,
+      "signer": 8,
+      "participant": "8",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.26727649569511414,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.8741629123687744
+    },
+    {
+      "k": 3,
+      "signer": 8,
+      "participant": "8",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.19307270646095276,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.208068132400513
+    },
+    {
+      "k": 4,
+      "signer": 8,
+      "participant": "8",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.18006980419158936,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.469976902008057
+    },
+    {
+      "k": 0,
+      "signer": 9,
+      "participant": "9",
+      "top1": 0.875,
+      "top5": 0.984375,
+      "loss": 0.6142367124557495,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.8571428571428571,
+        "two_handed": 0.9090909090909091
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 9,
+      "participant": "9",
+      "top1": 0.96875,
+      "top5": 0.984375,
+      "loss": 0.32937729358673096,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.6317808628082275
+    },
+    {
+      "k": 2,
+      "signer": 9,
+      "participant": "9",
+      "top1": 0.96875,
+      "top5": 0.984375,
+      "loss": 0.2704426646232605,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.929931879043579
+    },
+    {
+      "k": 3,
+      "signer": 9,
+      "participant": "9",
+      "top1": 0.96875,
+      "top5": 0.984375,
+      "loss": 0.2465357780456543,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.162988901138306
+    },
+    {
+      "k": 4,
+      "signer": 9,
+      "participant": "9",
+      "top1": 0.96875,
+      "top5": 1.0,
+      "loss": 0.250034362077713,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9523809523809523,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.555837154388428
+    },
+    {
+      "k": 0,
+      "signer": 10,
+      "participant": "10a",
+      "top1": 0.9375,
+      "top5": 0.984375,
+      "loss": 0.40479087829589844,
+      "n_support": 0,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 0.9047619047619048,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 0.0
+    },
+    {
+      "k": 1,
+      "signer": 10,
+      "participant": "10a",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.20993338525295258,
+      "n_support": 64,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 1.63527512550354
+    },
+    {
+      "k": 2,
+      "signer": 10,
+      "participant": "10a",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.1722884476184845,
+      "n_support": 128,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 2.9073331356048584
+    },
+    {
+      "k": 3,
+      "signer": 10,
+      "participant": "10a",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.17428384721279144,
+      "n_support": 192,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 4.20818305015564
+    },
+    {
+      "k": 4,
+      "signer": 10,
+      "participant": "10a",
+      "top1": 1.0,
+      "top5": 1.0,
+      "loss": 0.1783185601234436,
+      "n_support": 256,
+      "n_query": 64,
+      "per_handedness": {
+        "one_handed": 1.0,
+        "two_handed": 1.0
+      },
+      "pretrain_cached": false,
+      "seconds": 5.529106140136719
+    }
+  ],
+  "method": {
+    "pretrain": "fedavg",
+    "load": "all",
+    "adapt": "full"
+  },
+  "k_values": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "skipped_k": [],
+  "query_repetitions": 1,
+  "n_folds": 10
+}

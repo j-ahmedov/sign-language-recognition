@@ -4,11 +4,23 @@ A client owns one signer's clips and never shares them. What it does share is se
 ``share_prefixes``: ``("encoder.", "head.")`` is FedAvg, ``("encoder.",)`` is FedPer, and the
 difference between E4 and E5 is exactly that tuple.
 
-Clients run inside Ray actor processes, so two things are handled here rather than left to
-the caller. Partitions are read from ``.npy`` files with a small per-process cache, because
-re-normalizing a signer's 320 clips on every round of every client would dominate the run
-time; and torch is pinned to one thread, because Ray hands each actor one core and letting
-ten actors each spawn ten threads makes the simulation slower than running it serially.
+Clients run inside Ray actor processes, so three things are handled here rather than left to
+the caller.
+
+**The private head is kept in ``Context.state``.** Flower rebuilds the client object for every
+round -- verified, not assumed: an attribute set in one round's ``fit`` is gone by the next --
+so a head living on ``self`` would be freshly initialized at the start of every round. Under
+FedAvg that is invisible, because the server sends a trained head back each round anyway.
+Under FedPer it is fatal and silent: the encoder spends fifty rounds being trained to serve a
+*random* classifier, still converges to something, and reports a number that reads as "FedPer
+underperforms" rather than as a bug. ``Context.state`` is the one thing Flower guarantees
+persists across rounds for a node, and it never leaves the client, which is exactly the
+lifetime a private parameter needs.
+
+Partitions are read from ``.npz`` files with a small per-process cache, because re-normalizing
+a signer's 320 clips on every round of every client would dominate the run time; and torch is
+pinned to one thread, because Ray hands each actor one core and letting ten actors each spawn
+ten threads makes the simulation slower than running it serially.
 """
 
 from __future__ import annotations
@@ -21,7 +33,8 @@ from typing import Any
 import numpy as np
 import torch
 from flwr.client import Client, NumPyClient
-from flwr.common import Context
+from flwr.common import ArrayRecord, Context, RecordDict
+from torch import nn
 
 from signadapt.federated.parameters import get_parameters, set_parameters, shared_keys
 from signadapt.models.model import build_model
@@ -30,6 +43,22 @@ from signadapt.train.loop import evaluate_tensors, train_model
 # At most two partitions per actor: one client's data is ~38 MB at T=64, and an unbounded
 # cache would let each of ten actors accumulate all ten partitions.
 _CACHE_SIZE = 2
+
+# Where a client keeps the parameters it never transmits, inside its own Context.state.
+PRIVATE_STATE_KEY = "signadapt.private"
+
+
+def private_keys(model: nn.Module, share_prefixes: Sequence[str]) -> tuple[str, ...]:
+    """List the state-dict keys this client keeps rather than transmits.
+
+    Args:
+        model: The client's model.
+        share_prefixes: The prefixes that *are* transmitted.
+
+    Returns:
+        Every other key, in state-dict order. Empty under FedAvg, where nothing is private.
+    """
+    return tuple(k for k in model.state_dict() if not any(k.startswith(p) for p in share_prefixes))
 
 
 @lru_cache(maxsize=_CACHE_SIZE)
@@ -66,6 +95,7 @@ class SignerClient(NumPyClient):
         device: torch.device,
         seed: int = 0,
         local_epochs: int = 1,
+        state: RecordDict | None = None,
     ) -> None:
         """Build a client.
 
@@ -81,6 +111,10 @@ class SignerClient(NumPyClient):
             device: Where this client trains; CPU inside Ray actors.
             seed: Seed for local shuffling and augmentation.
             local_epochs: Local epochs per round.
+            state: This node's ``Context.state``, the only storage that survives Flower
+                rebuilding the client between rounds. Without it a private head is
+                re-initialized every round -- see the module docstring. ``None`` is for
+                direct unit-testing of a single round.
         """
         self.signer = signer
         self.share_prefixes = tuple(share_prefixes)
@@ -90,10 +124,32 @@ class SignerClient(NumPyClient):
         self._device = device
         self._seed = seed
         self._local_epochs = local_epochs
+        self._state = state
         self._model = build_model(model_cfg)
         # Fail here, on construction, rather than mid-round: a prefix that matches nothing
         # would make every round a silent no-op.
         shared_keys(self._model, self.share_prefixes)
+        self.private_keys = private_keys(self._model, self.share_prefixes)
+        self._restore_private()
+
+    # --------------------------------------------------------------- private parameters
+
+    def _restore_private(self) -> None:
+        """Load this client's private parameters from the round-surviving context state."""
+        if self._state is None or not self.private_keys:
+            return
+        record = self._state.array_records.get(PRIVATE_STATE_KEY)
+        if record is not None:
+            self._model.load_state_dict(record.to_torch_state_dict(), strict=False)
+
+    def _save_private(self) -> None:
+        """Write this client's private parameters back to the context state."""
+        if self._state is None or not self.private_keys:
+            return
+        state = self._model.state_dict()
+        self._state[PRIVATE_STATE_KEY] = ArrayRecord.from_torch_state_dict(
+            {k: state[k].detach().cpu() for k in self.private_keys}
+        )
 
     def get_parameters(self, config: dict[str, Any]) -> list[np.ndarray]:
         """Return this client's transmittable parameters.
@@ -136,6 +192,9 @@ class SignerClient(NumPyClient):
             seed=self._seed + 1000 * server_round + self.signer,
             epochs=int(config.get("local_epochs", self._local_epochs)),
         )
+        # The head this round trained is the head next round must start from.
+        self._save_private()
+
         last = outcome.history[-1] if outcome.history else {}
         return (
             self.get_parameters({}),
@@ -144,6 +203,7 @@ class SignerClient(NumPyClient):
                 "signer": self.signer,
                 "train_loss": float(last.get("train_loss", float("nan"))),
                 "train_top1": float(last.get("train_top1", float("nan"))),
+                "n_private": len(self.private_keys),
                 "seconds": outcome.seconds,
             },
         )
@@ -209,6 +269,9 @@ def make_client_fn(
             device=torch.device(device),
             seed=seed,
             local_epochs=local_epochs,
+            # Flower rebuilds this object every round; context.state is what carries the
+            # private head from one round to the next.
+            state=context.state,
         ).to_client()
 
     return client_fn

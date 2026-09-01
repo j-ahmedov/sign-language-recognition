@@ -19,14 +19,21 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any
 
 import torch
 
-from signadapt.data.dataset import KeypointDataset, load_records, make_splits
+from signadapt.data.dataset import (
+    ClipRecord,
+    KeypointDataset,
+    Split,
+    load_records,
+    make_splits,
+)
 from signadapt.models.model import build_model
 from signadapt.train.loop import evaluate_tensors, resolve_device, stack_dataset, train_model
-from signadapt.utils.config import apply_overrides, load_config
+from signadapt.utils.config import apply_overrides, config_fingerprint, load_config
 from signadapt.utils.metrics import format_mean_std, mean_std
 from signadapt.utils.results import ResultsLogger
 from signadapt.utils.seeding import seed_everything, temporary_seed
@@ -210,6 +217,74 @@ def run_centralized(
     )
     print("          per signer: " + "  ".join(f"{k}={v:.3f}" for k, v in test.per_signer.items()))
     return metrics
+
+
+def pretrain_centralized(
+    records: list[ClipRecord],
+    fold: Split,
+    *,
+    model_cfg: dict[str, Any],
+    data_cfg: dict[str, Any],
+    seed: int = 0,
+    cache_dir: str | None = "data/checkpoints/pretrain",
+) -> dict[str, Any]:
+    """Train one model centrally on a LOSO fold's training signers, for E6.
+
+    E6 is the non-federated upper bound for E5 (PLAN.md section 6): the same architecture and
+    the same training signers, pooled on one machine. It keeps its natural advantage of
+    early-stopping on the fold's validation signer, because being the ceiling is the point --
+    the gap between E6 and E5 is what federation costs. That does mean E6's encoder is
+    validation-selected while E4's and E5's are the final round, and that difference is part
+    of what "upper bound" means here rather than a like-for-like comparison.
+
+    Args:
+        records: All records.
+        fold: The LOSO fold; ``fold.train`` trains and ``fold.val`` selects.
+        model_cfg: Loaded model config.
+        data_cfg: Loaded data config.
+        seed: Seed.
+        cache_dir: Where finished pretrainings are cached, or ``None`` to disable.
+
+    Returns:
+        ``{"state": {key: tensor}, "best_epoch": int, "best_val_top1": float,
+        "cached": bool}``.
+    """
+    tag = f"centralized_{fold.name}_seed{seed}"
+    cache_path = Path(cache_dir) / f"{tag}.pt" if cache_dir else None
+    fingerprint = config_fingerprint(
+        model_cfg["encoder"], model_cfg["head"], model_cfg["train"], model_cfg.get("augment"),
+        fold.signers["train"], fold.signers["val"], seed,
+    )
+    if cache_path is not None and cache_path.exists():
+        payload = torch.load(cache_path, weights_only=False)
+        if payload.get("fingerprint") == fingerprint:
+            return {**payload, "cached": True}
+        print(f"[pretrain] {tag}: cached under a different config, recomputing")
+
+    device = resolve_device(model_cfg["train"].get("device", "auto"))
+    seed_everything(seed)
+    model = build_model(model_cfg)
+    outcome = train_model(
+        model,
+        _tensors(records, fold.train, data_cfg),
+        _tensors(records, fold.val, data_cfg),
+        model_cfg,
+        device=device,
+        seed=seed,
+    )
+    payload = {
+        "state": outcome.best_state,
+        "best_epoch": outcome.best_epoch,
+        "best_val_top1": outcome.best_val,
+        "epochs_run": outcome.epochs_run,
+        "fold": fold.name,
+        "seed": seed,
+        "fingerprint": fingerprint,
+    }
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(payload, cache_path)
+    return {**payload, "cached": False}
 
 
 def summarize(name: str, runs: list[dict[str, Any]]) -> dict[str, Any]:
