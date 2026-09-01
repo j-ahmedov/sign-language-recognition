@@ -94,6 +94,38 @@ def _write_federated(results_dir: Path, experiment: str, seed: int, top1: float)
         log.set_metrics(top1=top1, n_rounds=3, n_shared_tensors=7)
 
 
+def _write_demo(results_dir: Path, device: str, fps: float) -> None:
+    with ResultsLogger(
+        "demo", config={"model": _model_cfg()}, seed=0, results_dir=results_dir
+    ) as log:
+        log.set_metrics(
+            n_frames=300,
+            fps=fps,
+            frame_ms={"mean": 1000 / fps, "p50": 1000 / fps, "p95": 1000 / fps, "max": 20.0},
+            stages_ms={
+                stage: {"p50": value, "p95": value, "mean": value, "max": value, "n": 300}
+                for stage, value in (
+                    ("capture", 0.8),
+                    ("landmarks", 11.9),
+                    ("normalize", 0.5),
+                    ("model", 0.8 if device == "cpu" else 3.7),
+                    ("render", 0.5),
+                )
+            },
+            source={"spec": "bench.mp4", "live": False, "width": 1280, "height": 720, "fps": 30.0},
+            model={"checkpoint": "test", "device": device, "parameters": {"total": 605888}},
+            target_fps=15.0,
+        )
+
+
+def _write_demo_verify(results_dir: Path) -> None:
+    with ResultsLogger(
+        "demo-verify", config={"model": _model_cfg()}, seed=0, results_dir=results_dir
+    ) as log:
+        log.log_record(clip_id="001_009_001", label=0)
+        log.set_metrics(n_clips=10, live_matches_cached=1.0, passed=True)
+
+
 @pytest.fixture
 def results_dir(tmp_path: Path) -> Path:
     """A complete synthetic results directory: every experiment the figures need."""
@@ -106,6 +138,9 @@ def results_dir(tmp_path: Path) -> Path:
         _write_centralized(directory, "E2", seed, 0.80 + 0.01 * seed)
         _write_federated(directory, "fedavg-pretrain", seed, 0.79 + 0.01 * seed)
     _write_federated(directory, "fedavg-iid-check", 0, 0.805)
+    _write_demo(directory, "cpu", 68.9)
+    _write_demo(directory, "mps", 57.4)
+    _write_demo_verify(directory)
     return directory
 
 
@@ -253,6 +288,7 @@ def test_build_all_writes_every_figure_and_the_summary(results_dir, tmp_path):
         "fig4_signer_spread",
         "fig5_federated_convergence",
         "fig6_communication_cost",
+        "fig7_latency_budget",
     }
     for entry in summary["figures"].values():
         for path in entry["file"]:
@@ -277,15 +313,35 @@ def test_every_number_in_the_summary_is_recomputable_from_the_results(results_di
             assert entry["mean"] == pytest.approx(sum(expected) / len(expected))
 
 
-def test_figures_are_deterministic(results_dir, tmp_path):
-    """Same JSON in, same bytes out -- so a regenerated figure is a no-op in git."""
-    first = figures.build_all(results_dir, tmp_path / "a", formats=("png",))
-    second = figures.build_all(results_dir, tmp_path / "b", formats=("png",))
-    assert first["figures"] == second["figures"] or True  # paths differ; compare the images
-    for name in first["figures"]:
-        a = (tmp_path / "a" / f"{name}.png").read_bytes()
-        b = (tmp_path / "b" / f"{name}.png").read_bytes()
-        assert a == b, name
+@pytest.mark.parametrize("extension", ["png", "pdf"])
+def test_figures_are_deterministic(results_dir, tmp_path, extension):
+    """Same JSON in, same bytes out -- so a regenerated figure is a no-op in git.
+
+    PDF is included because it is the format that was not: matplotlib stamps a CreationDate
+    into it, so every `make figures` used to dirty all seven PDFs whether or not a number had
+    changed.
+    """
+    figures.build_all(results_dir, tmp_path / "a", formats=(extension,))
+    figures.build_all(results_dir, tmp_path / "b", formats=(extension,))
+    for path in sorted((tmp_path / "a").glob(f"*.{extension}")):
+        assert path.read_bytes() == (tmp_path / "b" / path.name).read_bytes(), path.name
+
+
+def test_the_latency_figure_reports_the_budget_a_camera_actually_allows(results_dir, tmp_path):
+    """68.9 fps on a file is the pipeline's capacity; a 30 fps camera is what caps a call."""
+    summary = figures.build_all(results_dir, tmp_path / "figures", formats=("png",))
+    entry = summary["figures"]["fig7_latency_budget"]
+    assert entry["frame_budget_ms"] == pytest.approx(1000.0 / 30.0)
+    assert set(entry["by_device"]) == {"cpu", "mps"}
+    assert entry["by_device"]["cpu"]["budget_used"] < entry["by_device"]["mps"]["budget_used"]
+    assert entry["verify"]["live_matches_cached"] == 1.0
+
+
+def test_a_missing_benchmark_names_the_command_that_produces_it(results_dir, tmp_path):
+    for path in results_dir.glob("demo_*.json"):
+        path.unlink()
+    with pytest.raises(FileNotFoundError, match="make demo-bench"):
+        figures.build_all(results_dir, tmp_path / "figures", formats=("png",))
 
 
 def test_build_all_refuses_to_draw_without_the_centralized_baselines(results_dir, tmp_path):

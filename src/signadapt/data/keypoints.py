@@ -57,6 +57,8 @@ __all__ = [
     "ensure_model",
     "extract_clip",
     "extract_dataset",
+    "frame_from_result",
+    "open_landmarker",
 ]
 
 MODEL_URL = (
@@ -272,6 +274,68 @@ def _fill(
     return True
 
 
+def frame_from_result(result: Any) -> tuple[np.ndarray, dict[str, bool]]:
+    """Turn one MediaPipe holistic result into the ``(115, 4)`` buffer the model expects.
+
+    Offline extraction and the live demo both go through here on purpose. A second copy of
+    this mapping is the most dangerous kind of duplication in the project: if the demo
+    assembled its landmark rows in a different order, or marked validity differently, every
+    live prediction would be wrong and nothing would look broken -- the model would happily
+    return a confident label for scrambled input.
+
+    Args:
+        result: A ``HolisticLandmarkerResult``.
+
+    Returns:
+        ``(buffer, detected)`` where ``buffer`` is ``(115, 4)`` float32 with coordinates in
+        channels 0..2 and a validity flag in channel 3, and ``detected`` says which groups
+        were found. Undetected rows are NaN with validity 0, never a silent zero -- the model
+        is trained to read that flag (see ``configs/model.yaml``).
+    """
+    buffer = np.full((N_LANDMARKS, 4), np.nan, dtype=np.float32)
+    buffer[:, 3] = 0.0
+    groups = {
+        "pose": (_landmark_list(result.pose_landmarks), None),
+        "left_hand": (_landmark_list(result.left_hand_landmarks), None),
+        "right_hand": (_landmark_list(result.right_hand_landmarks), None),
+        "face": (_landmark_list(result.face_landmarks), FACE_SUBSET),
+    }
+    detected = {
+        name: _fill(buffer, SLICES[name], landmarks, subset)
+        for name, (landmarks, subset) in groups.items()
+    }
+    return buffer, detected
+
+
+def open_landmarker(cfg: dict[str, Any]) -> Any:
+    """Create a HolisticLandmarker in VIDEO mode from the extraction config.
+
+    Args:
+        cfg: Loaded ``configs/data.yaml``.
+
+    Returns:
+        An open landmarker; the caller must close it.
+    """
+    from mediapipe.tasks.python import BaseOptions
+    from mediapipe.tasks.python.vision import (
+        HolisticLandmarker,
+        HolisticLandmarkerOptions,
+        RunningMode,
+    )
+
+    extraction = cfg.get("extraction", {})
+    options = HolisticLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=str(ensure_model())),
+        running_mode=RunningMode.VIDEO,
+        min_pose_detection_confidence=extraction.get("min_detection_confidence", 0.5),
+        min_pose_landmarks_confidence=extraction.get("min_tracking_confidence", 0.5),
+        min_hand_landmarks_confidence=extraction.get("min_tracking_confidence", 0.5),
+        min_face_detection_confidence=extraction.get("min_detection_confidence", 0.5),
+        min_face_landmarks_confidence=extraction.get("min_tracking_confidence", 0.5),
+    )
+    return HolisticLandmarker.create_from_options(options)
+
+
 def extract_clip(
     video_path: Path,
     cfg: dict[str, Any],
@@ -314,7 +378,7 @@ def extract_clip(
     frames: list[np.ndarray] = []
     hits = dict.fromkeys(SLICES, 0)
     index = 0
-    landmarker = _open_landmarker(cfg)
+    landmarker = open_landmarker(cfg)
     try:
         while True:
             ok, frame_bgr = capture.read()
@@ -332,17 +396,9 @@ def extract_clip(
             timestamp_ms = int(round(1000.0 * index / fps))
             result = landmarker.detect_for_video(image, timestamp_ms)
 
-            buffer = np.full((N_LANDMARKS, 4), np.nan, dtype=np.float32)
-            buffer[:, 3] = 0.0
-            groups = {
-                "pose": (_landmark_list(result.pose_landmarks), None),
-                "left_hand": (_landmark_list(result.left_hand_landmarks), None),
-                "right_hand": (_landmark_list(result.right_hand_landmarks), None),
-                "face": (_landmark_list(result.face_landmarks), FACE_SUBSET),
-            }
-            for name, (landmarks, subset) in groups.items():
-                if _fill(buffer, SLICES[name], landmarks, subset):
-                    hits[name] += 1
+            buffer, detected = frame_from_result(result)
+            for name, found in detected.items():
+                hits[name] += int(found)
             frames.append(buffer)
             index += 1
     finally:
@@ -361,28 +417,6 @@ def extract_clip(
         seconds=time.time() - started,
     )
     return array, stats
-
-
-def _open_landmarker(cfg: dict[str, Any]) -> Any:
-    """Create a HolisticLandmarker in VIDEO mode from the extraction config."""
-    from mediapipe.tasks.python import BaseOptions
-    from mediapipe.tasks.python.vision import (
-        HolisticLandmarker,
-        HolisticLandmarkerOptions,
-        RunningMode,
-    )
-
-    extraction = cfg.get("extraction", {})
-    options = HolisticLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=str(ensure_model())),
-        running_mode=RunningMode.VIDEO,
-        min_pose_detection_confidence=extraction.get("min_detection_confidence", 0.5),
-        min_pose_landmarks_confidence=extraction.get("min_tracking_confidence", 0.5),
-        min_hand_landmarks_confidence=extraction.get("min_tracking_confidence", 0.5),
-        min_face_detection_confidence=extraction.get("min_detection_confidence", 0.5),
-        min_face_landmarks_confidence=extraction.get("min_tracking_confidence", 0.5),
-    )
-    return HolisticLandmarker.create_from_options(options)
 
 
 _WORKER_STATE: dict[str, Any] = {}

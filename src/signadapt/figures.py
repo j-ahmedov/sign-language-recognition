@@ -52,6 +52,8 @@ __all__ = [
     "Fold",
     "adaptation_curve",
     "by_k",
+    "latency_budget",
+    "load_demo",
     "load_folds",
     "main",
     "paired_delta",
@@ -351,6 +353,39 @@ def load_federated(results_dir: str | Path = "results") -> dict[str, Any]:
     return out
 
 
+def load_demo(results_dir: str | Path = "results") -> dict[str, Any]:
+    """Load the live-demo latency runs and the demo's correctness gate.
+
+    Args:
+        results_dir: Directory holding the committed result files.
+
+    Returns:
+        ``{"runs": [...], "verify": {...} | None}``. ``runs`` is one entry per benchmark,
+        newest last, each carrying the per-stage percentiles and the device it ran on.
+    """
+    runs = [
+        {
+            "device": doc["metrics"]["model"]["device"],
+            "fps": float(doc["metrics"]["fps"]),
+            "n_frames": int(doc["metrics"]["n_frames"]),
+            "frame_ms": doc["metrics"]["frame_ms"],
+            "stages_ms": doc["metrics"]["stages_ms"],
+            "source_fps": float(doc["metrics"]["source"]["fps"]),
+            "resolution": (doc["metrics"]["source"]["width"], doc["metrics"]["source"]["height"]),
+            "target_fps": float(doc["metrics"]["target_fps"]),
+            "source": doc["_path"],
+        }
+        for doc in load_results(results_dir, experiment="demo")
+    ]
+    checks = load_results(results_dir, experiment="demo-verify")
+    return {
+        "runs": runs,
+        "verify": None
+        if not checks
+        else {k: v for k, v in checks[-1]["metrics"].items() if k != "records"},
+    }
+
+
 def model_config(results_dir: str | Path = "results") -> dict[str, Any]:
     """Return the model config the sweep actually ran under, from a result file.
 
@@ -517,7 +552,12 @@ def _save(fig: plt.Figure, out_dir: Path, name: str, formats: tuple[str, ...]) -
     written = []
     for extension in formats:
         path = out_dir / f"{name}.{extension}"
-        fig.savefig(path, format=extension, bbox_inches="tight", dpi=200)
+        # PDF carries a CreationDate by default, so an unchanged figure would still show as
+        # modified in git on every regeneration -- which makes "make figures is a no-op if
+        # nothing changed" untrue, and trains a reader to ignore the diff. Setting it to None
+        # omits the key. PNG has no such stamp.
+        metadata = {"CreationDate": None} if extension == "pdf" else None
+        fig.savefig(path, format=extension, bbox_inches="tight", dpi=200, metadata=metadata)
         written.append(str(path))
     plt.close(fig)
     return written
@@ -1366,6 +1406,166 @@ def communication_cost(
     }
 
 
+#: Stage order in the latency figure: the order a frame actually passes through them.
+STAGE_ORDER = ("capture", "landmarks", "normalize", "model", "render")
+
+STAGE_LABEL = {
+    "capture": "capture",
+    "landmarks": "keypoints (MediaPipe)",
+    "normalize": "normalize",
+    "model": "model",
+    "render": "caption + render",
+}
+
+
+def latency_budget(
+    demo: dict[str, Any],
+    out_dir: Path,
+    formats: tuple[str, ...],
+) -> dict[str, Any]:
+    """Draw where a frame's time goes, against the budget a live camera actually allows.
+
+    The headline of a demo is usually its frame rate, which on an unthrottled video file is
+    the pipeline's capacity rather than anything a viewer would see: a 30 fps camera caps the
+    rate whatever the pipeline can do. What matters is how much of the 33.3 ms between camera
+    frames the pipeline spends, so that is what the figure is drawn against.
+
+    Args:
+        demo: Output of :func:`load_demo`.
+        out_dir: Destination directory.
+        formats: File formats to write.
+
+    Returns:
+        The numbers drawn.
+
+    Raises:
+        FileNotFoundError: If no benchmark run exists.
+    """
+    if not demo.get("runs"):
+        raise FileNotFoundError(
+            "no finished demo benchmark; run `make demo-bench` before drawing the latency "
+            "figure"
+        )
+    apply_style()
+    runs = demo["runs"]
+    devices = {}
+    for run in runs:  # newest run wins per device
+        devices[run["device"]] = run
+    order = sorted(devices, key=lambda d: devices[d]["frame_ms"]["p50"])
+
+    fig, ax = plt.subplots(figsize=(7.6, 0.62 * len(order) + 1.75))
+    _despine(ax, left=False)
+
+    budget_ms = 1000.0 / runs[-1]["source_fps"]
+    ax.axvline(budget_ms, color=NEGATIVE, linewidth=1.2, zorder=5)
+    ax.text(
+        budget_ms + 0.4,
+        len(order) - 0.34,
+        f"{budget_ms:.1f} ms — one frame at {runs[-1]['source_fps']:.0f} fps",
+        color=NEGATIVE,
+        fontsize=8.5,
+        va="center",
+        ha="left",
+    )
+
+    # One hue, light to dark, in pipeline order: the stages are an ordered sequence, not
+    # unrelated categories, so a categorical palette would be the wrong encoding. Validated
+    # as an ordinal ramp -- monotone lightness, every adjacent gap >= 0.06, and the lightest
+    # step clears 2:1 against the surface so the first segment does not vanish into it.
+    ramp = ("#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281")
+    drawn: dict[str, Any] = {}
+    for row, device in enumerate(order):
+        run = devices[device]
+        left = 0.0
+        for stage, colour in zip(STAGE_ORDER, ramp, strict=True):
+            if stage not in run["stages_ms"]:
+                continue
+            width = run["stages_ms"][stage]["p50"]
+            ax.barh(
+                [row],
+                [width],
+                left=left,
+                height=0.62,
+                color=colour,
+                zorder=3,
+                linewidth=2.0,
+                edgecolor=SURFACE,
+            )
+            if width > budget_ms * 0.07:
+                # Ink or surface, chosen by the step's luminance rather than by a hardcoded
+                # list, so re-stepping the ramp cannot leave a label unreadable.
+                rgb = [int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+                luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+                ax.text(
+                    left + width / 2,
+                    row,
+                    f"{width:.1f}",
+                    color=INK if luminance > 0.5 else SURFACE,
+                    fontsize=8,
+                    ha="center",
+                    va="center",
+                )
+            left += width
+        ax.text(
+            left + 0.5,
+            row,
+            f"{run['fps']:.0f} fps",
+            color=INK,
+            fontsize=8.5,
+            va="center",
+            ha="left",
+            fontweight="medium",
+        )
+        drawn[device] = {
+            "fps": run["fps"],
+            "frame_ms": run["frame_ms"],
+            "stages_ms": {k: v["p50"] for k, v in run["stages_ms"].items()},
+            "budget_used": left / budget_ms,
+        }
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=colour)
+        for stage, colour in zip(STAGE_ORDER, ramp, strict=True)
+        if stage in runs[-1]["stages_ms"]
+    ]
+    ax.legend(
+        handles,
+        [STAGE_LABEL[s] for s in STAGE_ORDER if s in runs[-1]["stages_ms"]],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.30),
+        ncol=len(handles),
+        columnspacing=1.2,
+        handlelength=1.1,
+    )
+    ax.set_yticks(range(len(order)))
+    ax.set_yticklabels([f"model on {d}" for d in order])
+    ax.set_ylim(-0.62, len(order) - 0.38)
+    ax.set_xlim(0, budget_ms * 1.16)
+    ax.set_xlabel("median time per frame (ms)")
+    ax.set_title("A frame's time budget, and what is left of it", color=INK, loc="left", pad=26)
+    ax.text(
+        0.0,
+        1.03,
+        f"{runs[-1]['resolution'][0]}x{runs[-1]['resolution'][1]} at "
+        f"{runs[-1]['source_fps']:.0f} fps; bars are p50 per stage. Anything left of the red "
+        "line runs in real time.",
+        transform=ax.transAxes,
+        color=INK_SOFT,
+        fontsize=8,
+        va="bottom",
+    )
+    ax.grid(axis="y", visible=False)
+
+    return {
+        "file": _save(fig, out_dir, "fig7_latency_budget", formats),
+        "question": "RQ4 — on-device inference latency",
+        "frame_budget_ms": budget_ms,
+        "target_fps": runs[-1]["target_fps"],
+        "by_device": drawn,
+        "verify": demo.get("verify"),
+    }
+
+
 # ------------------------------------------------------------------ entry point
 
 
@@ -1407,6 +1607,7 @@ def build_all(
             "fig6_communication_cost": communication_cost(
                 model_config(results_dir), federated, out_dir, formats
             ),
+            "fig7_latency_budget": latency_budget(load_demo(results_dir), out_dir, formats),
         },
     }
     out_dir.mkdir(parents=True, exist_ok=True)

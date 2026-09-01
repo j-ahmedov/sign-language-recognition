@@ -178,3 +178,31 @@ def test_numpy_arrays_are_serializable(tmp_path):
     log.set_metrics(per_signer=np.array([0.1, 0.2]))
     doc = json.loads(log.save().read_text())
     assert doc["metrics"]["per_signer"] == [pytest.approx(0.1), pytest.approx(0.2)]
+
+
+def test_two_runs_in_the_same_second_do_not_overwrite_each_other(tmp_path):
+    """The filename is timestamped to the second, so back-to-back runs used to collide.
+
+    The failure mode was silent: the surviving file was perfectly valid JSON, there was
+    simply one fewer result on disk than runs that had happened, and anything reading the
+    directory would quietly summarize over the survivors. Caught by the demo benchmark,
+    which finishes in about ten seconds.
+    """
+    paths = []
+    for value in (1, 2, 3):
+        with ResultsLogger("demo", seed=0, results_dir=tmp_path) as log:
+            log.set_metrics(fps=value)
+        paths.append(log.path)
+
+    assert len({path.name for path in paths}) == 3
+    assert sorted(json.loads(p.read_text())["metrics"]["fps"] for p in paths) == [1, 2, 3]
+    assert len(load_results(tmp_path, experiment="demo")) == 3
+
+
+def test_a_reserved_path_survives_repeated_saves(tmp_path):
+    """save() is also a mid-run checkpoint, so the name must be chosen once, not per call."""
+    log = ResultsLogger("demo", seed=0, results_dir=tmp_path)
+    first = log.save()
+    log.set_metrics(fps=2)
+    assert log.save() == first
+    assert len(list(tmp_path.glob("*.json"))) == 1

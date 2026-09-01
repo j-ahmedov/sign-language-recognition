@@ -20,7 +20,7 @@ run things.
 | 3 | Flower simulation, FedAvg, IID correctness check, E3 | **done** |
 | 4 | FedPer (E5), E4, E6, k-sweep | **done** |
 | 5 | Figures regenerated from `results/*.json` | **done** |
-| 6 | Live webcam demo through a virtual camera | not started |
+| 6 | Live webcam demo through a virtual camera | **done**, except the two steps that need a person: see below |
 
 ## The gap (RQ1)
 
@@ -226,7 +226,7 @@ architecture the privacy argument for FedPer does not come with a communication 
 
 ## Figures
 
-`make figures` regenerates all six from `results/*.json` alone — no dataset, no model, no
+`make figures` regenerates all seven from `results/*.json` alone — no dataset, no model, no
 GPU, about four seconds. It also writes `figures/summary.json`, which records every number
 each figure draws together with the result files it came from; the tables above are read out
 of that file rather than typed, so prose and figures cannot drift apart.
@@ -239,6 +239,7 @@ of that file rather than typed, so prose and figures cannot drift apart.
 | `fig4_signer_spread` | every one of the 30 folds per method per k, not just the mean | PLAN.md §6, inter-signer variance |
 | `fig5_federated_convergence` | per-round client accuracy, and the IID correctness gate | PLAN.md §8 week 4 |
 | `fig6_communication_cost` | encoder vs head share of the per-round payload | RQ4 |
+| `fig7_latency_budget` | where a frame's 33.3 ms goes, CPU vs MPS | RQ4 |
 
 Each is written as both PNG and PDF. Three properties are enforced by `tests/test_figures.py`
 rather than by care: a run whose `status` is not `ok` never reaches a figure, a missing
@@ -254,6 +255,86 @@ first version was misleading:
   signer's result vary" (n=30). Averaging seeds within a signer first answers "how much do
   signers differ" (n=10) and is smaller at every k. The curve's error bars are the first;
   the inter-signer numbers above are the second.
+
+## The live demo (RQ4)
+
+`make demo` runs webcam → MediaPipe → normalize → model → caption → virtual camera, and
+publishes to a device that Zoom, Meet and Teams see as an ordinary webcam. `make demo SINK=window`
+previews locally instead; `SINK=file` writes an mp4.
+
+### Latency and frame rate
+
+`make demo-bench` measures the pipeline on a 26-second 1280×720 30 fps stream that the code
+builds from held-out signer 9's clips — no camera needed, and reproducible from a checkout.
+Numbers from `results/demo_*.json`, MacBook Pro M4, 16 GB:
+
+| stage | p50 | p95 |
+|---|---|---|
+| capture | 0.8 ms | 0.9 ms |
+| **landmarks (MediaPipe)** | **11.9 ms** | **12.4 ms** |
+| normalize | 0.5 ms | 0.7 ms |
+| model | 0.8 ms | 1.0 ms |
+| render + caption | 0.5 ms | 0.6 ms |
+| **whole frame** | **14.5 ms** | **15.0 ms** |
+
+**68.9 fps sustained, against PLAN.md §8's ≥ 15 fps target.** At a real 30 fps camera the
+pipeline uses 14.5 of the 33.3 ms available per frame, so 56 % of the budget is spare — that
+headroom, not the 68.9, is the number to quote for a live call, because a camera caps the
+rate whatever the pipeline can do.
+
+**Keypoint extraction is 82 % of the cost and the model is 6 %.** The thesis's own network is
+not what makes this real-time or not; MediaPipe is. That is the argument for the keypoint
+pipeline in PLAN.md §4 arriving as a measurement rather than as an assumption.
+
+**Inference is faster on the CPU than on the GPU** — 0.8 ms against 3.7 ms on MPS, so 68.9 fps
+against 57.4. At 606 k parameters and batch size 1 the model is small enough that Metal's
+per-call dispatch overhead costs more than the arithmetic it saves. The demo defaults to
+`--device cpu` for that reason; `make demo-bench` reproduces both.
+
+### Does the live path agree with the offline one?
+
+A demo looks convincing whether or not it is correct — a caption appears either way — so
+`make demo-verify` streams held-out clips through the live code and compares against the
+offline pipeline that produced every number in this README:
+
+```
+[verify] PASS  live path reproduces the offline pipeline on 100% of 100 held-out clips
+  cached       top-1 83.0%
+  live_full    top-1 83.0%
+  live_window  top-1 82.0%
+  the 1.6s rolling window truncated 22/100 clips and costs +1.0 points overall, +4.5 on the clips it truncated
+```
+
+Both paths call the same `frame_from_result` and the same `normalize_clip`, which is what the
+100 % agreement checks is still true.
+
+The last row is a genuine cost of going live. Training clips are trimmed to exactly one sign;
+a live stream is not, so the model is shown the last **1.6 s** — between LSA64's median clip
+(1.30 s) and its p90 (1.97 s). For the 22 clips longer than that, the window costs 4.5 points.
+
+### What this demo is not
+
+It serves a model trained on seven LSA64 signers performing 64 Argentinian signs in a fixed
+studio. Someone signing at a laptop is a new signer, a new room and a new camera angle, and —
+unless they know LSA64 — is not performing anything in the label set. **There is no "no sign"
+class**: the model must return one of 64 labels for whatever it is shown, so a confident
+caption over an unrecognized gesture is expected behaviour, not a fault. The confidence gate
+(`--min-confidence`, default 0.5) suppresses the weakest of these and nothing more.
+
+The overlay says so on every frame, so a screenshot cannot be mistaken for a result. Per
+PLAN.md §3 the demo is illustrative; the evidence about recognition quality is in the figures
+above, on held-out signers.
+
+### The two steps that still need a person
+
+- **The virtual camera device.** `pyvirtualcam` needs macOS's system extension, which only
+  OBS installs. Install OBS, click *Start Virtual Camera* once, then `make demo` publishes to
+  it and "SignAdapt" appears in Zoom's camera list. Without it the demo exits with that
+  instruction rather than a stack trace — the code path is wired but unverified end to end on
+  this machine.
+- **The webcam branch itself.** Everything above was measured on video files, because the
+  shell this was built in has no camera permission. `FrameSource("webcam")` is exercised the
+  first time you run `make demo`.
 
 ## Setup
 
@@ -276,7 +357,9 @@ Tested on macOS 15 (Apple M4, 16 GB) with Python 3.12.
 | `make local` | E3 local-only: each held-out signer trains from scratch on k of their clips |
 | `make sweep` | E4/E5/E6 k-shot adaptation over every leave-one-signer-out fold |
 | `make figures` | Rebuild every figure from committed `results/*.json` |
-| `make demo` | Webcam → keypoints → caption → virtual camera |
+| `make demo` | Webcam → keypoints → caption → virtual camera (`SINK=window` to preview) |
+| `make demo-verify` | Does the live path reproduce the offline pipeline? Held-out clips only |
+| `make demo-bench` | RQ4: frame rate and per-stage latency; no camera required |
 | `make test` | pytest, including the signer-leakage guard |
 | `make lint` / `make format` | ruff |
 

@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "experiment": "demo",
+  "tag": null,
+  "description": "RQ4: end-to-end latency and frame rate of the live pipeline on this machine. Not evidence about recognition quality -- see the module docstring.",
+  "seed": 0,
+  "status": "ok",
+  "error": null,
+  "created_utc": "2026-09-01T11:21:37.695511+00:00",
+  "duration_s": 11.368,
+  "environment": {
+    "python": "3.12.6",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "hostname": "MacBook-Pro-14-J.local",
+    "cpu_count": 10,
+    "torch_device": "mps",
+    "versions": {
+      "numpy": "1.26.4",
+      "torch": "2.13.0",
+      "flwr": "1.35.0",
+      "mediapipe": "0.10.35",
+      "cv2": "4.11.0"
+    },
+    "git": {
+      "commit": "f16b9932939c1be643d546995198a23bccb613f8",
+      "dirty": true
+    }
+  },
+  "config": {
+    "model": {
+      "encoder": {
+        "type": "temporal_transformer",
+        "input_dim": 460,
+        "d_model": 128,
+        "n_layers": 4,
+        "n_heads": 4,
+        "ff_dim": 256,
+        "dropout": 0.1,
+        "max_len": 64,
+        "pooling": "mean"
+      },
+      "head": {
+        "type": "linear",
+        "in_dim": 128,
+        "n_classes": 64,
+        "dropout": 0.0
+      },
+      "train": {
+        "epochs": 60,
+        "batch_size": 32,
+        "optimizer": "adamw",
+        "lr": 0.0003,
+        "weight_decay": 0.01,
+        "scheduler": "cosine",
+        "warmup_epochs": 3,
+        "label_smoothing": 0.1,
+        "grad_clip": 1.0,
+        "early_stopping_patience": 12,
+        "device": "auto",
+        "num_workers": 0
+      },
+      "augment": {
+        "enabled": true,
+        "rotate_deg": 10.0,
+        "scale_jitter": 0.1,
+        "translate": 0.05,
+        "time_mask": 8,
+        "dropout_landmarks": 0.05
+      },
+      "sanity": {
+        "subset_size": 50,
+        "epochs": 200,
+        "target_accuracy": 0.98
+      },
+      "seeds": [
+        0,
+        1,
+        2
+      ]
+    },
+    "data": {
+      "dataset": {
+        "name": "lsa64",
+        "url": "https://facundoq.github.io/datasets/lsa64/",
+        "archive_name": "lsa64_cut.zip",
+        "archive_sha256": "0bba209f3f32357233612a374d68da408c7a978e09584ddff834c0c3c96257e3",
+        "raw_dir": "data/raw/lsa64",
+        "cache_dir": "data/cache/lsa64",
+        "n_classes": 64,
+        "n_signers": 10
+      },
+      "landmarks": {
+        "pose": 33,
+        "left_hand": 21,
+        "right_hand": 21,
+        "face": {
+          "subset_name": "signadapt40",
+          "n_landmarks": 40
+        },
+        "total": 115
+      },
+      "normalization": {
+        "anchor": "mid_shoulder",
+        "scale": "shoulder_width",
+        "z_weight": 0.25,
+        "missing_hand": "mask",
+        "mirror_left_handed": true
+      },
+      "temporal": {
+        "n_frames": 64,
+        "resample": "linear"
+      },
+      "extraction": {
+        "n_workers": 8,
+        "min_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+        "model_complexity": 1
+      },
+      "splits": {
+        "mode": "signer_independent",
+        "exclude_signers": [],
+        "train_signers": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "val_signers": [
+          8
+        ],
+        "test_signers": [
+          9,
+          10
+        ],
+        "val_fraction": 0.1
+      }
+    }
+  },
+  "metrics": {
+    "n_frames": 783,
+    "n_predictions": 772,
+    "seconds": 11.366569290999905,
+    "fps": 68.8862206312315,
+    "fps_from_p50_frame": 68.93659716753115,
+    "frame_ms": {
+      "mean": 14.516276831588932,
+      "p50": 14.50608299637679,
+      "p95": 15.018516103737056,
+      "max": 23.664416999963578
+    },
+    "stages_ms": {
+      "capture": {
+        "mean": 0.7493068124506176,
+        "p50": 0.778499997977633,
+        "p95": 0.879862398505793,
+        "max": 2.5831660022959113,
+        "n": 784
+      },
+      "landmarks": {
+        "mean": 11.936309042159678,
+        "p50": 11.871750000864267,
+        "p95": 12.371087501378497,
+        "max": 20.63033300510142,
+        "n": 783
+      },
+      "render": {
+        "mean": 0.4569112117880852,
+        "p50": 0.46533400018233806,
+        "p95": 0.5657833011355251,
+        "max": 0.7879580007283948,
+        "n": 783
+      },
+      "normalize": {
+        "mean": 0.5293663602286601,
+        "p50": 0.5195419980736915,
+        "p95": 0.6536954970215447,
+        "max": 0.8935410005506128,
+        "n": 772
+      },
+      "model": {
+        "mean": 0.825916432644816,
+        "p50": 0.8098540020000655,
+        "p95": 0.9763647005456733,
+        "max": 1.3227089948486537,
+        "n": 772
+      }
+    },
+    "meets_target": true,
+    "target_fps": 15.0,
+    "window_seconds": 1.6,
+    "min_confidence": 0.5,
+    "smoothing": 0.6,
+    "predict_every": 1,
+    "source": {
+      "spec": "data/cache/demo/bench_1280x720_30fps_s9_24.mp4",
+      "live": false,
+      "width": 1280,
+      "height": 720,
+      "fps": 30.0
+    },
+    "model": {
+      "checkpoint": "fedavg-pretrain seed 0",
+      "device": "cpu",
+      "parameters": {
+        "encoder": 597632,
+        "head": 8256,
+        "total": 605888
+      }
+    }
+  },
+  "records": []
+}

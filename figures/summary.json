@@ -1,6 +1,6 @@
 {
   "generated_from": "results",
-  "n_result_files": 24,
+  "n_result_files": 28,
   "methods_found": [
     "E3",
     "E4",
@@ -1085,6 +1085,64 @@
       },
       "rounds": 50,
       "n_clients": 7
+    },
+    "fig7_latency_budget": {
+      "file": [
+        "figures/fig7_latency_budget.png",
+        "figures/fig7_latency_budget.pdf"
+      ],
+      "question": "RQ4 \u2014 on-device inference latency",
+      "frame_budget_ms": 33.333333333333336,
+      "target_fps": 15.0,
+      "by_device": {
+        "cpu": {
+          "fps": 68.8862206312315,
+          "frame_ms": {
+            "mean": 14.516276831588932,
+            "p50": 14.50608299637679,
+            "p95": 15.018516103737056,
+            "max": 23.664416999963578
+          },
+          "stages_ms": {
+            "capture": 0.778499997977633,
+            "landmarks": 11.871750000864267,
+            "render": 0.46533400018233806,
+            "normalize": 0.5195419980736915,
+            "model": 0.8098540020000655
+          },
+          "budget_used": 0.4333493999729398
+        },
+        "mps": {
+          "fps": 57.400986162488564,
+          "frame_ms": {
+            "mean": 17.420831149498476,
+            "p50": 17.41549999860581,
+            "p95": 18.065654097154038,
+            "max": 85.48829199571628
+          },
+          "stages_ms": {
+            "capture": 0.7699170018895529,
+            "landmarks": 11.892333001014777,
+            "render": 0.48320800124201924,
+            "normalize": 0.47949950021575205,
+            "model": 3.7482920015463606
+          },
+          "budget_used": 0.5211974851772538
+        }
+      },
+      "verify": {
+        "n_clips": 100,
+        "top1": {
+          "cached": 0.83,
+          "live_full": 0.83,
+          "live_window": 0.82
+        },
+        "live_matches_cached": 1.0,
+        "n_truncated_by_window": 22,
+        "window_cost_points": 1.0000000000000009,
+        "window_cost_points_on_truncated": 4.545454545454541,
+        "passed": true
+      }
     }
   }
 }

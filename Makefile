@@ -6,7 +6,8 @@ PIP    ?= .venv/bin/pip
 SEED   ?= 0
 CONFIG ?= configs
 
-.PHONY: help setup data overlay sanity train federated local sweep figures demo test lint format clean
+.PHONY: help setup data overlay sanity train federated local sweep figures demo demo-verify \
+        demo-bench test lint format clean
 
 CLIPS ?= 001_001_001 010_007_004 030_002_001 045_010_002 060_006_003
 
@@ -20,8 +21,10 @@ help:
 	@echo "  federated  IID correctness check, then FedAvg over one client per signer"
 	@echo "  local      E3 local-only: each held-out signer trains from scratch on k clips"
 	@echo "  sweep      E4/E5/E6 k-shot adaptation over every leave-one-signer-out fold"
-	@echo "  figures    regenerate every figure from committed results/*.json  [phase 5]"
-	@echo "  demo       webcam -> keypoints -> caption -> virtual camera       [phase 6]"
+	@echo "  figures    regenerate every figure from committed results/*.json"
+	@echo "  demo        webcam -> keypoints -> caption -> virtual camera"
+	@echo "  demo-verify does the live path reproduce the offline pipeline? held-out clips"
+	@echo "  demo-bench  RQ4: fps and per-stage latency, no camera required"
 	@echo "  test       pytest (signer-leakage guard lives here)"
 	@echo "  lint       ruff check"
 	@echo "  format     ruff format + import sort"
@@ -75,8 +78,24 @@ sweep:
 figures:
 	$(PYTHON) -m signadapt.figures --results results --out figures
 
+# The served model is the phase-3 FedAvg checkpoint: a real artefact of the thesis, and one
+# of the few with a trained head (FedPer's are encoder-only by design).
+CHECKPOINT ?= data/checkpoints/fedavg-pretrain_seed0.pt
+SINK       ?= virtualcam
+
 demo:
-	$(PYTHON) -m signadapt.demo.realtime --config $(CONFIG)/model.yaml
+	$(PYTHON) -m signadapt.demo.realtime --config $(CONFIG)/model.yaml \
+		--data-config $(CONFIG)/data.yaml --checkpoint $(CHECKPOINT) --sink $(SINK)
+
+# Does the live path predict what the offline pipeline predicts? Held-out signers only.
+demo-verify:
+	$(PYTHON) -m signadapt.demo.realtime --config $(CONFIG)/model.yaml \
+		--data-config $(CONFIG)/data.yaml --checkpoint $(CHECKPOINT) --verify 100
+
+# RQ4: frame rate and per-stage latency, on a stream the repo can rebuild. No camera needed.
+demo-bench:
+	$(PYTHON) -m signadapt.demo.realtime --config $(CONFIG)/model.yaml \
+		--data-config $(CONFIG)/data.yaml --checkpoint $(CHECKPOINT) --bench
 
 test:
 	$(PYTHON) -m pytest

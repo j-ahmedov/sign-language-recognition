@@ -35,3 +35,9 @@ echo "== phase 5: figures from committed JSON ======================="
 # thesis reproducible from a checkout: figures/summary.json holds every number the figures
 # draw, and the prose quotes that file rather than a number someone typed (PLAN.md section 7).
 $PYTHON -m signadapt.figures --results results --out figures
+
+echo "== phase 6: demo correctness gate + RQ4 latency ==============="
+# Both are offline and need no camera, so the whole script still runs unattended. The live
+# webcam demo is `make demo` and is the one step a person has to be present for.
+$PYTHON -m signadapt.demo.realtime --verify 100
+$PYTHON -m signadapt.demo.realtime --bench

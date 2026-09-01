@@ -164,7 +164,35 @@ class ResultsLogger:
             parts.append(f"seed{seed}")
         parts.append(datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"))
         self.dir = Path(results_dir)
-        self.path = self.dir / ("_".join(parts) + ".json")
+        self.path = self._reserve(self.dir / ("_".join(parts) + ".json"))
+
+    @staticmethod
+    def _reserve(path: Path) -> Path:
+        """Return a path that does not exist yet, suffixing on collision.
+
+        The stem is timestamped to the second, so two runs that start inside the same second
+        would otherwise write to the same file and the later one would silently destroy the
+        earlier one's results. That is not hypothetical: the demo benchmark runs in about ten
+        seconds, so back-to-back invocations collide, and the loss is invisible -- the second
+        file is perfectly valid, there is just one fewer of them than runs that happened.
+
+        Resolved once, at construction, because :meth:`save` may be called repeatedly as a
+        mid-run checkpoint and must keep writing to the same file. Two *processes* starting in
+        the same second can still race here; the experiments in this repo run sequentially.
+
+        Args:
+            path: The preferred path.
+
+        Returns:
+            ``path`` if it is free, else the same stem with ``-2``, ``-3``, ... appended.
+        """
+        if not path.exists():
+            return path
+        for suffix in range(2, 1000):
+            candidate = path.with_name(f"{path.stem}-{suffix}{path.suffix}")
+            if not candidate.exists():
+                return candidate
+        raise RuntimeError(f"cannot find a free results filename next to {path}")
 
     def log_record(self, **fields: Any) -> None:
         """Append one row to the run's record list (typically one epoch or one round).
