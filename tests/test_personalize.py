@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from conftest import synthetic_records
 from signadapt.models.model import ENCODER_PREFIX, build_model
 from signadapt.personalize.adapt import (
     METHODS,
@@ -228,6 +229,10 @@ def test_run_sweep_passes_its_cache_dir_down_to_the_pretraining(monkeypatch, tmp
         raise RuntimeError("stop here")
 
     monkeypatch.setattr(adapt, "pretrained_state", fake_pretrained_state)
+    # run_sweep loads the keypoint manifest before it reaches the mock, so without this the
+    # test only passes on a machine that already has the dataset -- it was red in CI from
+    # phase 5 until this was noticed. The records are metadata only; nothing reads the .npy.
+    monkeypatch.setattr(adapt, "load_records", lambda *a, **k: synthetic_records())
     with pytest.raises(RuntimeError, match="stop here"):
         adapt.run_sweep(
             "E5",
