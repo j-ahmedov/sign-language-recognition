@@ -183,9 +183,12 @@ def test_aggregating_two_fedper_payloads_cannot_reach_a_head(tiny_cfg, fedper_pr
     a = build_model(tiny_cfg)
     seed_everything(1)
     b = build_model(tiny_cfg)
-    averaged = [(x + y) / 2 for x, y in
-                zip(get_parameters(a, fedper_prefixes), get_parameters(b, fedper_prefixes),
-                    strict=True)]
+    averaged = [
+        (x + y) / 2
+        for x, y in zip(
+            get_parameters(a, fedper_prefixes), get_parameters(b, fedper_prefixes), strict=True
+        )
+    ]
 
     head_before = {k: v.clone() for k, v in b.head_state_dict().items()}
     set_parameters(b, averaged, fedper_prefixes)
@@ -279,8 +282,11 @@ def test_a_fedper_checkpoint_holds_no_head_tensor(tiny_cfg, fedper_prefixes, tmp
     keys = shared_keys(model, fedper_prefixes)
     payload = {
         "state": dict(
-            zip(keys, (torch.from_numpy(np.asarray(a))
-                       for a in get_parameters(model, fedper_prefixes)), strict=True)
+            zip(
+                keys,
+                (torch.from_numpy(np.asarray(a)) for a in get_parameters(model, fedper_prefixes)),
+                strict=True,
+            )
         ),
         "prefixes": list(fedper_prefixes),
     }
@@ -325,8 +331,13 @@ def test_a_clients_head_persists_across_rounds_through_context_state(
 
     seed_everything(0)
     first = SignerClient(
-        model_cfg=tiny_cfg, train_path=path, val_path=None, signer=1,
-        share_prefixes=fedper_prefixes, device=torch.device("cpu"), local_epochs=1,
+        model_cfg=tiny_cfg,
+        train_path=path,
+        val_path=None,
+        signer=1,
+        share_prefixes=fedper_prefixes,
+        device=torch.device("cpu"),
+        local_epochs=1,
         state=state,
     )
     first.fit(shared, {"server_round": 1})
@@ -335,16 +346,19 @@ def test_a_clients_head_persists_across_rounds_through_context_state(
     # A brand-new object, as Flower would build it, with the same node state.
     seed_everything(0)
     second = SignerClient(
-        model_cfg=tiny_cfg, train_path=path, val_path=None, signer=1,
-        share_prefixes=fedper_prefixes, device=torch.device("cpu"), local_epochs=1,
+        model_cfg=tiny_cfg,
+        train_path=path,
+        val_path=None,
+        signer=1,
+        share_prefixes=fedper_prefixes,
+        device=torch.device("cpu"),
+        local_epochs=1,
         state=state,
     )
     torch.testing.assert_close(second._model.head.linear.weight, after_round_1)
 
 
-def test_without_context_state_the_head_restarts_every_round(
-    tiny_cfg, fedper_prefixes, tmp_path
-):
+def test_without_context_state_the_head_restarts_every_round(tiny_cfg, fedper_prefixes, tmp_path):
     """The contrast that makes the test above meaningful: this is the bug, reproduced."""
     path = write_partition(tmp_path / "c.npz", *clips())
     seed_everything(0)
@@ -352,23 +366,31 @@ def test_without_context_state_the_head_restarts_every_round(
 
     seed_everything(0)
     first = SignerClient(
-        model_cfg=tiny_cfg, train_path=path, val_path=None, signer=1,
-        share_prefixes=fedper_prefixes, device=torch.device("cpu"), local_epochs=1,
+        model_cfg=tiny_cfg,
+        train_path=path,
+        val_path=None,
+        signer=1,
+        share_prefixes=fedper_prefixes,
+        device=torch.device("cpu"),
+        local_epochs=1,
     )
     first.fit(shared, {"server_round": 1})
     trained = first._model.head.linear.weight.detach().clone()
 
     seed_everything(0)
     second = SignerClient(
-        model_cfg=tiny_cfg, train_path=path, val_path=None, signer=1,
-        share_prefixes=fedper_prefixes, device=torch.device("cpu"), local_epochs=1,
+        model_cfg=tiny_cfg,
+        train_path=path,
+        val_path=None,
+        signer=1,
+        share_prefixes=fedper_prefixes,
+        device=torch.device("cpu"),
+        local_epochs=1,
     )
     assert not torch.allclose(second._model.head.linear.weight, trained)
 
 
-def test_the_persisted_record_holds_the_head_and_only_the_head(
-    tiny_cfg, fedper_prefixes, tmp_path
-):
+def test_the_persisted_record_holds_the_head_and_only_the_head(tiny_cfg, fedper_prefixes, tmp_path):
     """What is written to node state must not quietly accumulate encoder tensors too."""
     from flwr.common import RecordDict
 
@@ -378,8 +400,13 @@ def test_the_persisted_record_holds_the_head_and_only_the_head(
     state = RecordDict()
     seed_everything(0)
     client = SignerClient(
-        model_cfg=tiny_cfg, train_path=path, val_path=None, signer=1,
-        share_prefixes=fedper_prefixes, device=torch.device("cpu"), local_epochs=1,
+        model_cfg=tiny_cfg,
+        train_path=path,
+        val_path=None,
+        signer=1,
+        share_prefixes=fedper_prefixes,
+        device=torch.device("cpu"),
+        local_epochs=1,
         state=state,
     )
     client.fit(get_parameters(build_model(tiny_cfg), fedper_prefixes), {"server_round": 1})

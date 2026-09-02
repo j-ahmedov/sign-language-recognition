@@ -293,7 +293,7 @@ def require_methods(folds: dict[str, tuple[Fold, ...]], needed: tuple[str, ...])
         raise FileNotFoundError(
             f"no finished results for {', '.join(missing)}. A figure drawn without them "
             f"would read as 'this method was not measured'. Run `make sweep METHODS=\""
-            f"{' '.join(missing)}\"` first."
+            f'{" ".join(missing)}"` first.'
         )
 
 
@@ -317,9 +317,7 @@ def load_centralized(results_dir: str | Path = "results") -> dict[str, dict[str,
             for signer, value in doc["metrics"].get("per_signer", {}).items():
                 per_signer[int(signer)].append(float(value))
         summary[experiment] = {
-            "runs": [
-                {"seed": d["seed"], "top1": float(d["metrics"]["top1"])} for d in docs
-            ],
+            "runs": [{"seed": d["seed"], "top1": float(d["metrics"]["top1"])} for d in docs],
             "top1": mean_std([d["metrics"]["top1"] for d in docs]),
             "top5": mean_std([d["metrics"]["top5"] for d in docs]),
             "per_signer": {s: mean_std(v) for s, v in sorted(per_signer.items())},
@@ -718,15 +716,11 @@ def adaptation_curve(
         "question": "RQ2, RQ3 — PLAN.md section 6 'the money chart'",
         "k_values": ks,
         "n_folds_per_point": n_folds,
-        "top1_pooled_over_signers_and_seeds": {
-            m: {k: curves[m][k] for k in ks} for m in methods
-        },
+        "top1_pooled_over_signers_and_seeds": {m: {k: curves[m][k] for k in ks} for m in methods},
         "top1_seed_averaged_then_across_signers": {
             m: {k: per_signer_curves[m][k] for k in ks} for m in methods
         },
-        "reference_levels": {
-            e: centralized[e]["top1"] for e in ("E1", "E2") if e in centralized
-        },
+        "reference_levels": {e: centralized[e]["top1"] for e in ("E1", "E2") if e in centralized},
         "smallest_k_reaching_reference": reached,
     }
 
@@ -850,9 +844,7 @@ def generalization_gap(
         # A range line per signer rather than a bar from zero: the finding is where the
         # signers sit relative to each other, and a zero baseline would compress all ten
         # into the last fifth of the panel.
-        right.plot(
-            [min(values), max(values)], [row, row], color=GRID, linewidth=2.4, zorder=1
-        )
+        right.plot([min(values), max(values)], [row, row], color=GRID, linewidth=2.4, zorder=1)
         right.scatter(
             values,
             np.full(len(values), row),
@@ -972,7 +964,13 @@ def paired_differences(
         colours = [POSITIVE if v >= 0 else NEGATIVE for v in values]
         ax.bar(ks, values, width=0.62, color=colours, zorder=2, linewidth=0)
         ax.errorbar(
-            ks, values, yerr=sems, fmt="none", ecolor=INK_SOFT, elinewidth=1.0, capsize=2.5,
+            ks,
+            values,
+            yerr=sems,
+            fmt="none",
+            ecolor=INK_SOFT,
+            elinewidth=1.0,
+            capsize=2.5,
             zorder=3,
         )
         ax.axhline(0, color=INK_SOFT, linewidth=1.0, zorder=4)
@@ -987,9 +985,7 @@ def paired_differences(
                 ha="center",
                 va="bottom" if value >= 0 else "top",
             )
-        improved = " ".join(
-            f"{deltas[name][k]['n_better']}/{deltas[name][k]['n']}" for k in ks
-        )
+        improved = " ".join(f"{deltas[name][k]['n_better']}/{deltas[name][k]['n']}" for k in ks)
         ax.set_title(f"{a} − {b}", color=INK, loc="left", pad=34)
         ax.text(
             0.0, 1.065, question, transform=ax.transAxes, color=INK_SOFT, fontsize=8, va="bottom"
@@ -1128,8 +1124,7 @@ def signer_spread(
             m: {k: min(f.top1 for f in folds[m] if f.k == k) for k in ks} for m in methods
         },
         "range_points_pooled": {
-            m: {k: (spreads[m][k]["max"] - spreads[m][k]["min"]) * 100 for k in ks}
-            for m in methods
+            m: {k: (spreads[m][k]["max"] - spreads[m][k]["min"]) * 100 for k in ks} for m in methods
         },
         "top1_per_signer_seed_averaged": per_signer,
         "range_points_across_signers": {
@@ -1175,8 +1170,7 @@ def federated_convergence(
     """
     if not federated.get("signer") or not federated.get("iid"):
         raise FileNotFoundError(
-            "no finished federated runs; run `make federated` before drawing the "
-            "convergence figure"
+            "no finished federated runs; run `make federated` before drawing the convergence figure"
         )
     if "E2" not in centralized:
         raise FileNotFoundError("no finished E2 run to check the IID partition against")
@@ -1252,9 +1246,7 @@ def federated_convergence(
         (0.0, reference["mean"] * 100, INK_SOFT),
         (1.0, iid["top1"] * 100, METHOD_COLOR["E5"]),
     ):
-        right.scatter(
-            [x], [value], s=70, color=colour, edgecolor=SURFACE, linewidth=1.6, zorder=4
-        )
+        right.scatter([x], [value], s=70, color=colour, edgecolor=SURFACE, linewidth=1.6, zorder=4)
         right.text(
             x, value + 0.55, f"{value:.1f}%", color=INK, fontsize=9, ha="center", va="bottom"
         )
@@ -1334,6 +1326,7 @@ def communication_cost(
     state = model.state_dict()
     encoder = {k: v for k, v in state.items() if k.startswith(ENCODER_PREFIX)}
     head = {k: v for k, v in state.items() if not k.startswith(ENCODER_PREFIX)}
+
     def bytes_of(part: dict[str, Any]) -> int:
         return sum(int(v.numel()) * v.element_size() for v in part.values())
 
@@ -1468,8 +1461,7 @@ def latency_budget(
     """
     if not demo.get("runs"):
         extra = (
-            " (the demo results present are all live camera sessions, which are not drawn "
-            "here)"
+            " (the demo results present are all live camera sessions, which are not drawn here)"
             if demo.get("live_runs")
             else ""
         )
@@ -1654,8 +1646,7 @@ def matched_budget_check(results_dir: str | Path = "results") -> dict[str, Any] 
             "E6M-E6": {k: dict(v) for k, v in paired_delta(folds["E6M"], folds["E6"]).items()},
         },
         "by_k": {
-            name: {k: dict(v) for k, v in by_k(folds[name]).items()}
-            for name in ("E5", "E6", "E6M")
+            name: {k: dict(v) for k, v in by_k(folds[name]).items()} for name in ("E5", "E6", "E6M")
         },
     }
 
@@ -1690,9 +1681,7 @@ def build_all(
         "methods_found": sorted(folds),
         "figures": {
             "fig1_adaptation_curve": adaptation_curve(folds, centralized, out_dir, formats),
-            "fig2_generalization_gap": generalization_gap(
-                folds, centralized, out_dir, formats
-            ),
+            "fig2_generalization_gap": generalization_gap(folds, centralized, out_dir, formats),
             "fig3_paired_differences": paired_differences(folds, out_dir, formats),
             "fig4_signer_spread": signer_spread(folds, out_dir, formats),
             "fig5_federated_convergence": federated_convergence(

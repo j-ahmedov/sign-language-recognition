@@ -163,9 +163,7 @@ class FrameSource:
     camera driver's.
     """
 
-    def __init__(
-        self, spec: str, *, width: int | None = None, height: int | None = None
-    ) -> None:
+    def __init__(self, spec: str, *, width: int | None = None, height: int | None = None) -> None:
         """Open a source.
 
         Args:
@@ -486,9 +484,7 @@ def run_demo(
                 with clock.time("model"):
                     probs = recognizer(clip)
                 smoothed = (
-                    probs
-                    if smoothed is None
-                    else smoothing * smoothed + (1.0 - smoothing) * probs
+                    probs if smoothed is None else smoothing * smoothed + (1.0 - smoothing) * probs
                 )
                 top = recognizer.top_k(smoothed)
                 prediction = Prediction(top=top, confident=top[0][1] >= min_confidence)
@@ -496,9 +492,7 @@ def run_demo(
 
             telemetry = clock.latest()
             telemetry["latency_ms"] = 1000.0 * (time.perf_counter() - frame_started)
-            telemetry["fps"] = (
-                1000.0 / np.mean(frame_times[-30:]) if frame_times else float("nan")
-            )
+            telemetry["fps"] = 1000.0 / np.mean(frame_times[-30:]) if frame_times else float("nan")
             with clock.time("render"):
                 canvas = render_overlay(
                     frame,
@@ -635,9 +629,7 @@ def verify_pipeline(
         }
         row: dict[str, Any] = {"clip_id": clip_id, "label": label, "n_frames": len(frames)}
         for name, clip in conditions.items():
-            probs = recognizer(
-                normalize_clip(clip, aspect=source.aspect, **normalize_kwargs)
-            )
+            probs = recognizer(normalize_clip(clip, aspect=source.aspect, **normalize_kwargs))
             row[name] = {
                 "pred": int(np.argmax(probs)),
                 "prob": float(probs.max()),
@@ -771,9 +763,7 @@ def _held_out_clip_ids(data_cfg: dict[str, Any], n: int) -> list[str]:
     signers = data_cfg["splits"]["test_signers"]
     cache_dir = Path(data_cfg["dataset"]["cache_dir"])
     candidates = sorted(
-        path.stem
-        for path in cache_dir.glob("*.npy")
-        if int(path.stem.split("_")[1]) in signers
+        path.stem for path in cache_dir.glob("*.npy") if int(path.stem.split("_")[1]) in signers
     )
     if not candidates:
         return []

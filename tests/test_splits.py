@@ -33,8 +33,6 @@ from signadapt.utils.config import load_config
 CACHE_DIR = "data/cache/lsa64"
 
 
-
-
 def signer_sets(records, split):
     return {
         part: {records[i].signer for i in getattr(split, part)} for part in ("train", "val", "test")

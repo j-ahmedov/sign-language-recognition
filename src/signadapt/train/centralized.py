@@ -252,8 +252,13 @@ def pretrain_centralized(
     tag = f"centralized_{fold.name}_seed{seed}"
     cache_path = Path(cache_dir) / f"{tag}.pt" if cache_dir else None
     fingerprint = config_fingerprint(
-        model_cfg["encoder"], model_cfg["head"], model_cfg["train"], model_cfg.get("augment"),
-        fold.signers["train"], fold.signers["val"], seed,
+        model_cfg["encoder"],
+        model_cfg["head"],
+        model_cfg["train"],
+        model_cfg.get("augment"),
+        fold.signers["train"],
+        fold.signers["val"],
+        seed,
     )
     if cache_path is not None and cache_path.exists():
         payload = torch.load(cache_path, weights_only=False)

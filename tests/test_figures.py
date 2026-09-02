@@ -165,9 +165,12 @@ def test_load_folds_is_sorted_and_independent_of_file_order(results_dir):
 
 def test_a_failed_run_never_reaches_a_figure(results_dir):
     """A crashed sweep is on disk with status 'failed'; the loader must skip it."""
-    with pytest.raises(RuntimeError), ResultsLogger(
-        "E5", config={"model": _model_cfg()}, seed=99, results_dir=results_dir
-    ) as log:
+    with (
+        pytest.raises(RuntimeError),
+        ResultsLogger(
+            "E5", config={"model": _model_cfg()}, seed=99, results_dir=results_dir
+        ) as log,
+    ):
         log.log_record(k=0, signer=1, top1=0.0, top5=0.0)
         raise RuntimeError("boom")
 
@@ -219,9 +222,7 @@ def test_by_k_per_signer_removes_seed_noise_from_the_spread():
     the per-signer spread while the pooled one keeps it.
     """
     folds = tuple(
-        figures.Fold(
-            method="E5", seed=seed, signer=signer, k=1, top1=0.5 + 0.2 * seed, top5=1.0
-        )
+        figures.Fold(method="E5", seed=seed, signer=signer, k=1, top1=0.5 + 0.2 * seed, top5=1.0)
         for signer in range(4)
         for seed in range(3)
     )

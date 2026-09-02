@@ -202,9 +202,7 @@ def test_recognizer_scores_a_clip_and_ranks_it(tmp_path, tiny_model_cfg):
     assert probs.shape == (5,)
     assert probs.sum() == pytest.approx(1.0, abs=1e-5)
     top = recognizer.top_k(probs, k=3)
-    assert [name for name, _ in top] == [
-        names[i] for i in np.argsort(probs)[::-1][:3]
-    ]
+    assert [name for name, _ in top] == [names[i] for i in np.argsort(probs)[::-1][:3]]
     assert [p for _, p in top] == sorted((p for _, p in top), reverse=True)
 
 

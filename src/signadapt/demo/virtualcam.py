@@ -91,9 +91,7 @@ def _put_right(
     """
     ascii_text = text.encode("ascii", "replace").decode("ascii")
     (width, _), _ = cv2.getTextSize(ascii_text, font, scale, 1)
-    cv2.putText(
-        frame, ascii_text, (right - width, baseline), font, scale, colour, 1, cv2.LINE_AA
-    )
+    cv2.putText(frame, ascii_text, (right - width, baseline), font, scale, colour, 1, cv2.LINE_AA)
 
 
 def render_overlay(
@@ -159,9 +157,7 @@ def render_overlay(
         # A confidence bar for the top class: the number the caption is gated on, shown.
         bar_width = int(260 * scale)
         x0, y0 = width - bar_width - int(28 * scale), height - int(46 * scale)
-        cv2.rectangle(
-            canvas, (x0, y0), (x0 + bar_width, y0 + int(8 * scale)), (60, 60, 60), -1
-        )
+        cv2.rectangle(canvas, (x0, y0), (x0 + bar_width, y0 + int(8 * scale)), (60, 60, 60), -1)
         cv2.rectangle(
             canvas,
             (x0, y0),
@@ -308,9 +304,7 @@ class FileSink:
         """
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._writer = cv2.VideoWriter(
-            str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size
-        )
+        self._writer = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
         if not self._writer.isOpened():
             raise RuntimeError(f"cannot open a video writer at {self.path}")
 
@@ -352,8 +346,7 @@ class VirtualCamSink:
             import pyvirtualcam
         except ImportError as error:  # pragma: no cover - optional extra
             raise RuntimeError(
-                "pyvirtualcam is not installed; run `make setup` or "
-                "`pip install -e '.[demo]'`"
+                "pyvirtualcam is not installed; run `make setup` or `pip install -e '.[demo]'`"
             ) from error
         try:
             self._cam = pyvirtualcam.Camera(width=size[0], height=size[1], fps=int(fps))

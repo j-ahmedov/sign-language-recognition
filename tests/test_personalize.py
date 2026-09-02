@@ -262,7 +262,10 @@ def test_a_stale_pretraining_is_recomputed_rather_than_reused(tmp_path, monkeypa
     from signadapt.data.dataset import Split
 
     fold = Split(
-        name="loso-signer01", train=(0,), val=(1,), test=(2,),
+        name="loso-signer01",
+        train=(0,),
+        val=(1,),
+        test=(2,),
         signers={"train": (2, 3), "val": (4,), "test": (1,)},
     )
     model_cfg = load_config("configs/model.yaml")
@@ -331,8 +334,14 @@ def test_e6m_spends_its_whole_budget_and_keeps_e6s_selection_rule(monkeypatch):
     baseline = dict(model_cfg["train"])
     for method in ("E6", "E6M"):
         adapt.pretrained_state(
-            method, [], None, model_cfg=model_cfg, data_cfg={}, fl_cfg={},
-            seed=0, cache_dir="cache",
+            method,
+            [],
+            None,
+            model_cfg=model_cfg,
+            data_cfg={},
+            fl_cfg={},
+            seed=0,
+            cache_dir="cache",
         )
     (e6_train, e6_cache), (e6m_train, e6m_cache) = seen[0], seen[1]
     assert e6_train["epochs"] == baseline["epochs"]

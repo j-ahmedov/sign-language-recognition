@@ -334,8 +334,13 @@ def federated_pretrain(
     # the 2-round artefact a smoke test left behind: same filename, same shapes, silently
     # wrong numbers. The fingerprint covers everything that changes what the file contains.
     fingerprint = config_fingerprint(
-        model_cfg["encoder"], model_cfg["head"], fl_cfg["server"], fl_cfg["client"],
-        fl_cfg["strategy"], fold.signers["train"], seed,
+        model_cfg["encoder"],
+        model_cfg["head"],
+        fl_cfg["server"],
+        fl_cfg["client"],
+        fl_cfg["strategy"],
+        fold.signers["train"],
+        seed,
     )
     if cache_path is not None and cache_path.exists():
         payload = torch.load(cache_path, weights_only=False)
