@@ -6,8 +6,8 @@ PIP    ?= .venv/bin/pip
 SEED   ?= 0
 CONFIG ?= configs
 
-.PHONY: help setup data overlay sanity train federated local sweep figures demo demo-verify \
-        demo-bench test lint format clean
+.PHONY: help setup data overlay sanity train federated local sweep sweep-matched figures \
+        demo demo-verify demo-bench test lint format clean
 
 CLIPS ?= 001_001_001 010_007_004 030_002_001 045_010_002 060_006_003
 
@@ -21,6 +21,7 @@ help:
 	@echo "  federated  IID correctness check, then FedAvg over one client per signer"
 	@echo "  local      E3 local-only: each held-out signer trains from scratch on k clips"
 	@echo "  sweep      E4/E5/E6 k-shot adaptation over every leave-one-signer-out fold"
+	@echo "  sweep-matched  E6M: E6 again at E5's pretraining budget; diagnostic for E5 > E6"
 	@echo "  figures    regenerate every figure from committed results/*.json"
 	@echo "  demo        webcam -> keypoints -> caption -> virtual camera"
 	@echo "  demo-verify does the live path reproduce the offline pipeline? held-out clips"
@@ -74,6 +75,15 @@ sweep:
 	$(PYTHON) -m signadapt.personalize.adapt --config $(CONFIG)/fl.yaml \
 		--model-config $(CONFIG)/model.yaml --data-config $(CONFIG)/data.yaml \
 		--methods $(METHODS) $(if $(SEEDS),--seeds $(SEEDS),)
+
+# E5 beats E6 at every k >= 2, which a non-federated ceiling should not allow. E6M reruns E6
+# with its pretraining budget matched to the clip presentations the federation consumes (100
+# epochs, early stopping off), so the result can be attributed to method rather than schedule.
+# Its own pretraining cache, and ignored by the figures -- see figures.METHOD_ORDER.
+sweep-matched:
+	$(PYTHON) -m signadapt.personalize.adapt --config $(CONFIG)/fl.yaml \
+		--model-config $(CONFIG)/model.yaml --data-config $(CONFIG)/data.yaml \
+		--methods E6M $(if $(SEEDS),--seeds $(SEEDS),)
 
 figures:
 	$(PYTHON) -m signadapt.figures --results results --out figures

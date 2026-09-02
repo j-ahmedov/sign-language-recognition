@@ -47,7 +47,7 @@ def _model_cfg() -> dict:
 
 def _score(method: str, signer: int, k: int, seed: int) -> float:
     """A deterministic stand-in accuracy that differs by method, signer, k and seed."""
-    base = {"E3": 0.40, "E4": 0.80, "E5": 0.50, "E6": 0.45}[method]
+    base = {"E3": 0.40, "E4": 0.80, "E5": 0.50, "E6": 0.45, "E6M": 0.48}[method]
     return min(0.99, base + 0.08 * k + 0.01 * signer + 0.005 * seed)
 
 
@@ -94,7 +94,7 @@ def _write_federated(results_dir: Path, experiment: str, seed: int, top1: float)
         log.set_metrics(top1=top1, n_rounds=3, n_shared_tensors=7)
 
 
-def _write_demo(results_dir: Path, device: str, fps: float) -> None:
+def _write_demo(results_dir: Path, device: str, fps: float, *, live: bool = False) -> None:
     with ResultsLogger(
         "demo", config={"model": _model_cfg()}, seed=0, results_dir=results_dir
     ) as log:
@@ -105,14 +105,17 @@ def _write_demo(results_dir: Path, device: str, fps: float) -> None:
             stages_ms={
                 stage: {"p50": value, "p95": value, "mean": value, "max": value, "n": 300}
                 for stage, value in (
-                    ("capture", 0.8),
+                    # A live run's capture is the blocking wait for the next camera frame.
+                    ("capture", 16.3 if live else 0.8),
                     ("landmarks", 11.9),
                     ("normalize", 0.5),
                     ("model", 0.8 if device == "cpu" else 3.7),
                     ("render", 0.5),
                 )
             },
-            source={"spec": "bench.mp4", "live": False, "width": 1280, "height": 720, "fps": 30.0},
+            source={"spec": "webcam", "live": True, "width": 1920, "height": 1080, "fps": 15.0}
+            if live
+            else {"spec": "bench.mp4", "live": False, "width": 1280, "height": 720, "fps": 30.0},
             model={"checkpoint": "test", "device": device, "parameters": {"total": 605888}},
             target_fps=15.0,
         )
@@ -364,3 +367,113 @@ def test_cli_writes_the_figures(results_dir, tmp_path, capsys):
     )
     assert code == 0
     assert "fig1_adaptation_curve" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------ live vs benchmark runs
+
+
+def test_a_live_camera_session_never_reaches_the_latency_figure(results_dir, tmp_path):
+    """A camera session must not displace the benchmark it shares a device with.
+
+    Regression: the live run is newest and also on the cpu, so "newest run wins per device"
+    silently replaced the offline cpu benchmark with a camera-bound one -- which halved the
+    reported cpu frame rate and made mps look like the faster device, reversing the figure's
+    conclusion.
+    """
+    _write_demo(results_dir, "cpu", 29.5, live=True)
+    demo = figures.load_demo(results_dir)
+    assert [run["device"] for run in demo["live_runs"]] == ["cpu"]
+    assert all(not run["live"] for run in demo["runs"])
+
+    drawn = figures.latency_budget(demo, tmp_path, ("png",))
+    assert drawn["by_device"]["cpu"]["fps"] == pytest.approx(68.9)
+    assert drawn["by_device"]["cpu"]["stages_ms"]["capture"] == pytest.approx(0.8)
+    assert drawn["by_device"]["cpu"]["fps"] > drawn["by_device"]["mps"]["fps"]
+
+
+def test_the_budget_line_comes_from_the_benchmark_not_the_camera(results_dir, tmp_path):
+    """The camera reports 15 fps; the budget must stay the benchmark's 30 fps frame."""
+    _write_demo(results_dir, "cpu", 29.5, live=True)
+    drawn = figures.latency_budget(figures.load_demo(results_dir), tmp_path, ("png",))
+    assert drawn["frame_budget_ms"] == pytest.approx(1000 / 30.0)
+
+
+def test_a_live_session_is_still_reported_in_the_summary(results_dir, tmp_path):
+    """Excluded from the axis, kept in the summary: the README quotes it."""
+    _write_demo(results_dir, "cpu", 29.5, live=True)
+    drawn = figures.latency_budget(figures.load_demo(results_dir), tmp_path, ("png",))
+    live = drawn["live"]
+    assert live["fps"] == pytest.approx(29.5)
+    assert live["resolution"] == [1920, 1080]
+    assert live["camera_reported_fps"] == pytest.approx(15.0)
+    # Capture is the blocking wait for the next camera frame, and it dominates.
+    assert live["capture_share"] > 0.4
+
+
+def test_only_live_runs_is_a_missing_benchmark(tmp_path):
+    """A demo run exists, but not one the figure can draw -- say which command to run."""
+    directory = tmp_path / "results"
+    _write_demo(directory, "cpu", 29.5, live=True)
+    demo = figures.load_demo(directory)
+    assert demo["runs"] == []
+    with pytest.raises(FileNotFoundError, match="make demo-bench"):
+        figures.latency_budget(demo, tmp_path, ("png",))
+
+
+# ------------------------------------------------------------------ the matched-budget check
+
+
+def test_the_diagnostic_is_absent_until_it_has_been_run(results_dir):
+    """A diagnostic that was never run is a normal state, not a missing-results error."""
+    assert figures.matched_budget_check(results_dir) is None
+
+
+def test_e6m_is_excluded_from_the_figures_but_visible_to_the_diagnostic(results_dir):
+    for seed in SEEDS:
+        _write_sweep(results_dir, "E6M", seed)
+    assert "E6M" not in figures.load_folds(results_dir)
+    assert "E6M" in figures.load_folds(results_dir, methods=("E5", "E6", "E6M"))
+
+    check = figures.matched_budget_check(results_dir)
+    assert set(check["contrasts"]) == {"E5-E6", "E5-E6M", "E6M-E6"}
+
+
+def test_the_diagnostic_contrasts_are_paired_on_the_same_folds(results_dir):
+    for seed in SEEDS:
+        _write_sweep(results_dir, "E6M", seed)
+    check = figures.matched_budget_check(results_dir)
+    n = len(SEEDS) * len(SIGNERS)
+    for k, cell in check["contrasts"]["E5-E6M"].items():
+        assert cell["n"] == n, k
+    # E6M scores 0.48 against E6's 0.45 at every fold by construction, so the extra budget
+    # is worth exactly 3 points and E5's margin over it is 3 points smaller than over E6.
+    for k in check["contrasts"]["E5-E6"]:
+        wide = check["contrasts"]["E5-E6"][k]["mean"]
+        narrow = check["contrasts"]["E5-E6M"][k]["mean"]
+        assert wide - narrow == pytest.approx(0.03)
+        assert check["contrasts"]["E6M-E6"][k]["mean"] == pytest.approx(0.03)
+
+
+def test_a_diagnostic_run_does_not_change_any_figure(results_dir, tmp_path):
+    """The whole point of the METHOD_ORDER gate: adding E6M must not move a drawn number."""
+    before = figures.build_all(results_dir, tmp_path / "before", formats=("png",))
+    for seed in SEEDS:
+        _write_sweep(results_dir, "E6M", seed)
+    after = figures.build_all(results_dir, tmp_path / "after", formats=("png",))
+
+    def drawn(summary: dict) -> str:
+        # Drop "file": the two runs deliberately write to different directories. Compare
+        # serialized rather than as dicts, because a zero-variance contrast in this fixture
+        # gives t = NaN, and NaN != NaN would fail the comparison whatever the figures did.
+        return json.dumps(
+            {
+                name: {k: v for k, v in fig.items() if k != "file"}
+                for name, fig in summary["figures"].items()
+            },
+            sort_keys=True,
+            default=str,
+        )
+
+    assert drawn(before) == drawn(after)
+    assert before["diagnostics"] == {}
+    assert "matched_budget" in after["diagnostics"]

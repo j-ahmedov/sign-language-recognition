@@ -55,6 +55,7 @@ __all__ = [
     "latency_budget",
     "load_demo",
     "load_folds",
+    "matched_budget_check",
     "main",
     "paired_delta",
 ]
@@ -225,11 +226,16 @@ class Fold:
         return (self.seed, self.signer, self.k)
 
 
-def load_folds(results_dir: str | Path = "results") -> dict[str, tuple[Fold, ...]]:
+def load_folds(
+    results_dir: str | Path = "results", *, methods: tuple[str, ...] = METHOD_ORDER
+) -> dict[str, tuple[Fold, ...]]:
     """Load every per-fold record of the k-sweep experiments.
 
     Args:
         results_dir: Directory holding the committed result files.
+        methods: Which sweep experiments to admit. The default is the four methods the
+            figures draw, which is what keeps a diagnostic run such as E6M out of every
+            chart without anyone having to remember to exclude it.
 
     Returns:
         ``{method: folds}`` for every sweep method found, each tuple sorted by
@@ -245,7 +251,7 @@ def load_folds(results_dir: str | Path = "results") -> dict[str, tuple[Fold, ...
 
     for doc in load_results(results_dir):
         method = doc.get("experiment", "")
-        if method not in METHOD_ORDER:
+        if method not in methods:
             continue
         seed = int(doc["seed"])
         sources[method].append(doc["_path"])
@@ -354,16 +360,25 @@ def load_federated(results_dir: str | Path = "results") -> dict[str, Any]:
 
 
 def load_demo(results_dir: str | Path = "results") -> dict[str, Any]:
-    """Load the live-demo latency runs and the demo's correctness gate.
+    """Load the demo latency runs and the demo's correctness gate.
+
+    Runs are split by how the frames were sourced, because the two kinds are not comparable
+    and must never share an axis. A benchmark run reads a video file as fast as it can, so
+    every millisecond it reports is work. A live run blocks waiting for the next camera frame,
+    and that wait is charged to ``capture`` -- on this machine 16.3 ms of a 33.4 ms frame,
+    which is not the pipeline being slow but the camera setting the pace. Averaging or
+    overwriting one with the other reverses the CPU-vs-MPS comparison in
+    :func:`latency_budget`, since a camera-bound CPU row loses to an unthrottled MPS one.
 
     Args:
         results_dir: Directory holding the committed result files.
 
     Returns:
-        ``{"runs": [...], "verify": {...} | None}``. ``runs`` is one entry per benchmark,
-        newest last, each carrying the per-stage percentiles and the device it ran on.
+        ``{"runs": [...], "live_runs": [...], "verify": {...} | None}``. ``runs`` holds the
+        reproducible offline benchmarks, newest last, each carrying the per-stage percentiles
+        and the device it ran on; ``live_runs`` holds the camera sessions in the same shape.
     """
-    runs = [
+    everything = [
         {
             "device": doc["metrics"]["model"]["device"],
             "fps": float(doc["metrics"]["fps"]),
@@ -373,13 +388,15 @@ def load_demo(results_dir: str | Path = "results") -> dict[str, Any]:
             "source_fps": float(doc["metrics"]["source"]["fps"]),
             "resolution": (doc["metrics"]["source"]["width"], doc["metrics"]["source"]["height"]),
             "target_fps": float(doc["metrics"]["target_fps"]),
+            "live": bool(doc["metrics"]["source"].get("live", False)),
             "source": doc["_path"],
         }
         for doc in load_results(results_dir, experiment="demo")
     ]
     checks = load_results(results_dir, experiment="demo-verify")
     return {
-        "runs": runs,
+        "runs": [run for run in everything if not run["live"]],
+        "live_runs": [run for run in everything if run["live"]],
         "verify": None
         if not checks
         else {k: v for k, v in checks[-1]["metrics"].items() if k != "records"},
@@ -1430,21 +1447,35 @@ def latency_budget(
     rate whatever the pipeline can do. What matters is how much of the 33.3 ms between camera
     frames the pipeline spends, so that is what the figure is drawn against.
 
+    Only the offline benchmarks are drawn. A live camera session measures the camera as much
+    as the pipeline -- its ``capture`` stage is mostly the blocking wait for the next frame --
+    so putting a live row on the same axis as a benchmark row compares a throttled run with an
+    unthrottled one. It also reverses the conclusion: a camera-bound CPU run reports a slower
+    frame than an unthrottled MPS one, which would make the GPU look like the right choice
+    when the benchmark says the opposite. The live session is reported in the summary instead,
+    under ``live``, where it answers a different question -- what a viewer actually sees.
+
     Args:
         demo: Output of :func:`load_demo`.
         out_dir: Destination directory.
         formats: File formats to write.
 
     Returns:
-        The numbers drawn.
+        The numbers drawn, plus the newest live session if one exists.
 
     Raises:
-        FileNotFoundError: If no benchmark run exists.
+        FileNotFoundError: If no offline benchmark run exists.
     """
     if not demo.get("runs"):
+        extra = (
+            " (the demo results present are all live camera sessions, which are not drawn "
+            "here)"
+            if demo.get("live_runs")
+            else ""
+        )
         raise FileNotFoundError(
             "no finished demo benchmark; run `make demo-bench` before drawing the latency "
-            "figure"
+            f"figure{extra}"
         )
     apply_style()
     runs = demo["runs"]
@@ -1556,13 +1587,76 @@ def latency_budget(
     )
     ax.grid(axis="y", visible=False)
 
+    live = demo.get("live_runs") or []
     return {
         "file": _save(fig, out_dir, "fig7_latency_budget", formats),
         "question": "RQ4 — on-device inference latency",
         "frame_budget_ms": budget_ms,
         "target_fps": runs[-1]["target_fps"],
         "by_device": drawn,
+        # Not drawn, and not comparable with `by_device` -- see the docstring. Kept so the
+        # README's claim about what a real camera delivers stays regenerable rather than
+        # transcribed by hand.
+        "live": None
+        if not live
+        else {
+            "fps": live[-1]["fps"],
+            "device": live[-1]["device"],
+            "n_frames": live[-1]["n_frames"],
+            "resolution": list(live[-1]["resolution"]),
+            "camera_reported_fps": live[-1]["source_fps"],
+            "frame_ms": live[-1]["frame_ms"],
+            "stages_ms": {k: v["p50"] for k, v in live[-1]["stages_ms"].items()},
+            "capture_share": (
+                live[-1]["stages_ms"]["capture"]["p50"] / live[-1]["frame_ms"]["p50"]
+            ),
+        },
         "verify": demo.get("verify"),
+    }
+
+
+def matched_budget_check(results_dir: str | Path = "results") -> dict[str, Any] | None:
+    """Compare E5 against E6 run at E5's own pretraining budget.
+
+    E5 beats E6 at every k >= 2, which is the wrong way round: E6 pools on one machine what
+    E5 can only reach through averaging, so it is supposed to be the ceiling. Before that can
+    be read as evidence for federation it has to survive the dull explanation, which is that
+    E6's early stopping simply gave it less training. E6M is E6 with the budget matched --
+    100 epochs, early stopping off, same validation selection -- so the difference between
+    ``E5-E6`` and ``E5-E6M`` is what the schedule was worth.
+
+    Not a figure. It is a check on a figure's claim, it uses a method the charts deliberately
+    do not know about, and drawing it beside the three real contrasts would imply E6M is a
+    fourth method under test rather than the same method run twice.
+
+    Args:
+        results_dir: Directory holding the committed result files.
+
+    Returns:
+        The two paired contrasts and the budgets behind them, or ``None`` if E6M has not been
+        run -- absence is the normal state of a diagnostic, not an error.
+    """
+    folds = load_folds(results_dir, methods=(*METHOD_ORDER, "E6M"))
+    if "E6M" not in folds or "E5" not in folds or "E6" not in folds:
+        return None
+    return {
+        "question": "Is E5 > E6 a property of federation, or of E6's shorter schedule?",
+        "note": (
+            "E6M is E6 with pretraining matched to the clip presentations the federation "
+            "consumes (50 rounds x 2 local epochs = 100 passes over the pooled training "
+            "set), early stopping off so the budget is spent, validation selection kept so "
+            "only the budget differs. Run with `make sweep-matched`."
+        ),
+        "n_folds": {name: len(folds[name]) for name in ("E5", "E6", "E6M")},
+        "contrasts": {
+            "E5-E6": {k: dict(v) for k, v in paired_delta(folds["E5"], folds["E6"]).items()},
+            "E5-E6M": {k: dict(v) for k, v in paired_delta(folds["E5"], folds["E6M"]).items()},
+            "E6M-E6": {k: dict(v) for k, v in paired_delta(folds["E6M"], folds["E6"]).items()},
+        },
+        "by_k": {
+            name: {k: dict(v) for k, v in by_k(folds[name]).items()}
+            for name in ("E5", "E6", "E6M")
+        },
     }
 
 
@@ -1608,6 +1702,13 @@ def build_all(
                 model_config(results_dir), federated, out_dir, formats
             ),
             "fig7_latency_budget": latency_budget(load_demo(results_dir), out_dir, formats),
+        },
+        # Checks on the figures' claims rather than figures. Omitted entirely when the run
+        # they need is absent, so `make figures` from a fresh checkout is unaffected.
+        "diagnostics": {
+            key: value
+            for key, value in (("matched_budget", matched_budget_check(results_dir)),)
+            if value is not None
         },
     }
     out_dir.mkdir(parents=True, exist_ok=True)

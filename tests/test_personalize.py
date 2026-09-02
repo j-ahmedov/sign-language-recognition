@@ -13,7 +13,12 @@ import pytest
 import torch
 
 from signadapt.models.model import ENCODER_PREFIX, build_model
-from signadapt.personalize.adapt import METHODS, adapt_and_evaluate, adapt_config
+from signadapt.personalize.adapt import (
+    METHODS,
+    PRETRAIN_EPOCHS,
+    adapt_and_evaluate,
+    adapt_config,
+)
 from signadapt.utils.config import load_config
 from signadapt.utils.seeding import seed_everything
 
@@ -48,8 +53,14 @@ def empty():
 
 
 def test_the_three_methods_cover_the_plan_matrix():
-    assert set(METHODS) == {"E4", "E5", "E6"}
-    assert {m["pretrain"] for m in METHODS.values()} == {"fedavg", "fedper", "centralized"}
+    """PLAN.md section 6 names three methods; E6M is a diagnostic added on top of them."""
+    assert {"E4", "E5", "E6"} <= set(METHODS)
+    assert {METHODS[m]["pretrain"] for m in ("E4", "E5", "E6")} == {
+        "fedavg",
+        "fedper",
+        "centralized",
+    }
+    assert set(METHODS) - {"E4", "E5", "E6"} == {"E6M"}
 
 
 def test_e5_and_e6_differ_only_in_where_the_encoder_came_from():
@@ -276,3 +287,61 @@ def test_a_stale_pretraining_is_recomputed_rather_than_reused(tmp_path, monkeypa
     # Same config again: now the cache is legitimately warm.
     assert sim.federated_pretrain([], fold, fl_cfg=fl_cfg, **common)["cached"]
     assert len(calls) == 2
+
+
+# ------------------------------------------------------------ E6M, the matched-budget E6
+
+
+def test_e6m_is_e6_in_everything_but_its_pretraining_budget():
+    """The comparison is only meaningful if budget is the single difference."""
+    assert METHODS["E6M"] == METHODS["E6"]
+    assert set(PRETRAIN_EPOCHS) == {"E6M"}
+    assert "E6" not in PRETRAIN_EPOCHS
+
+
+def test_e6m_matches_the_clip_presentations_the_federation_consumes():
+    """50 rounds x 2 local epochs = 100 passes over the pooled training set."""
+    fl_cfg = load_config("configs/fl.yaml")
+    rounds = int(fl_cfg["server"]["num_rounds"])
+    local_epochs = int(fl_cfg["client"]["local_epochs"])
+    assert PRETRAIN_EPOCHS["E6M"] == rounds * local_epochs
+
+
+def test_e6m_spends_its_whole_budget_and_keeps_e6s_selection_rule(monkeypatch):
+    """Early stopping off so the budget is really spent, validation selection kept.
+
+    Patience > 0 is what gates the break in ``train_model``, so 0 disables stopping without
+    touching how the returned checkpoint is chosen -- leaving budget as the only difference.
+    """
+    from signadapt.personalize import adapt
+
+    seen = {}
+
+    def fake(records, fold, *, model_cfg, data_cfg, seed, cache_dir) -> dict:
+        seen[len(seen)] = (model_cfg["train"], cache_dir)
+        return {"state": {}, "cached": False}
+
+    monkeypatch.setattr(adapt, "pretrain_centralized", fake)
+    model_cfg = load_config("configs/model.yaml")
+    baseline = dict(model_cfg["train"])
+    for method in ("E6", "E6M"):
+        adapt.pretrained_state(
+            method, [], None, model_cfg=model_cfg, data_cfg={}, fl_cfg={},
+            seed=0, cache_dir="cache",
+        )
+    (e6_train, e6_cache), (e6m_train, e6m_cache) = seen[0], seen[1]
+    assert e6_train["epochs"] == baseline["epochs"]
+    assert e6m_train["epochs"] == PRETRAIN_EPOCHS["E6M"]
+    assert e6m_train["early_stopping_patience"] == 0
+    assert e6_train["early_stopping_patience"] > 0
+    # Same directory would silently overwrite the checkpoints E6's committed numbers came from.
+    assert e6_cache != e6m_cache
+    # And the caller's config must survive unmutated, or E6 in the same process inherits it.
+    assert model_cfg["train"] == baseline
+
+
+def test_e6m_never_reaches_the_figures():
+    """METHOD_ORDER gates the figure loader, so a diagnostic run cannot enter a chart."""
+    from signadapt.figures import METHOD_ORDER
+
+    assert "E6M" not in METHOD_ORDER

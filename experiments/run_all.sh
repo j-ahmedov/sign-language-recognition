@@ -30,6 +30,15 @@ for s in $SEEDS; do
   $PYTHON -m signadapt.personalize.adapt --methods E5 E4 E6 --seed "$s"
 done
 
+# E6M: E6 again with pretraining matched to the clip presentations E5's federation consumes.
+# E5 beats E6 at every k >= 2, which a non-federated ceiling should not allow, and this is
+# what rules out the schedule as the explanation. About 35 minutes per seed -- longer than
+# E6 itself, because 100 epochs is roughly three times what early stopping allowed. Ignored
+# by every figure; its numbers land in figures/summary.json under diagnostics.
+for s in $SEEDS; do
+  $PYTHON -m signadapt.personalize.adapt --methods E6M --seed "$s"
+done
+
 echo "== phase 5: figures from committed JSON ======================="
 # Reads only results/*.json -- no model, no dataset, no GPU. This step is what makes the
 # thesis reproducible from a checkout: figures/summary.json holds every number the figures

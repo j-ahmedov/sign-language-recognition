@@ -12,6 +12,9 @@ E5   FedPer across the training signers -- only the encoder is ever transmitted 
      Its k=0 point is chance by construction: there is no head until the signer makes one.
 E6   Centralized pretraining on the same signers, then the same private head. The
      non-federated ceiling for E5; the gap between them is what federation costs.
+E6M  E6 again, with its pretraining budget matched to what E5's federation consumes.
+     E5 beats E6 at every k >= 2, which a ceiling should not allow, and the obvious
+     alternative explanation is budget rather than method: see ``PRETRAIN_EPOCHS``.
 ===  ===============================================================================
 
 Every pretraining excludes the held-out signer, which is what makes the numbers mean
@@ -22,6 +25,7 @@ adaptation rather than memory, and pretrainings are cached so the sweep runs one
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -51,7 +55,30 @@ METHODS: dict[str, dict[str, str]] = {
     "E4": {"pretrain": "fedavg", "load": "all", "adapt": "full"},
     "E5": {"pretrain": "fedper", "load": "encoder", "adapt": "head"},
     "E6": {"pretrain": "centralized", "load": "encoder", "adapt": "head"},
+    "E6M": {"pretrain": "centralized", "load": "encoder", "adapt": "head"},
 }
+
+#: Methods whose pretraining runs to a fixed epoch budget instead of early-stopping.
+#:
+#: E5 outperforms E6 by about two points at every k >= 2, which is the wrong way round for a
+#: method and its own non-federated ceiling, so the budget has to be ruled out before the
+#: result can be attributed to federation. The two budgets are not comparable under a single
+#: number, and which one is "matched" decides the answer:
+#:
+#: * **Sequential updates per model.** A client runs 2 local epochs over one signer's 320
+#:   clips per round: 50 x 2 x 10 = 1000 optimizer steps. E6 selects at epoch 23.6 on average
+#:   over 2560 clips, or 1888 steps -- so E6 already gets 1.9x *more* than E5 by this measure,
+#:   and the confound does not exist.
+#: * **Clip presentations.** Every round, all 8 training clients each pass twice over their
+#:   own shard, so the federation consumes 2 epochs of the pooled training set per round and
+#:   100 over the run, against E6's 23.6. Here E5 gets 4.2x more.
+#:
+#: E6M matches the second, because it is the only one under which E6 is short-changed. Early
+#: stopping is switched off so the full budget is actually spent, while validation selection
+#: is kept, so E6M differs from E6 in budget alone rather than in how its checkpoint is
+#: chosen. If E6M closes the gap, the E5-over-E6 result is an artefact of the schedule; if it
+#: does not, federated averaging is doing something the pooled run does not.
+PRETRAIN_EPOCHS: dict[str, int] = {"E6M": 100}
 
 DESCRIPTIONS = {
     "E4": "FedAvg pretraining across the training signers, then fine-tuning the whole model "
@@ -60,6 +87,8 @@ DESCRIPTIONS = {
     "head on k clips with the encoder frozen. The proposed method, RQ3.",
     "E6": "Centralized pretraining on the same signers, then the same private head. The "
     "non-federated upper bound for E5.",
+    "E6M": "E6 with its pretraining budget matched to the clip presentations E5's federation "
+    "consumes (100 epochs, no early stopping): does the budget explain E5 > E6?",
 }
 
 
@@ -136,6 +165,17 @@ def pretrained_state(
     """
     source = METHODS[method]["pretrain"]
     if source == "centralized":
+        budget = PRETRAIN_EPOCHS.get(method)
+        if budget is not None:
+            model_cfg = {
+                **model_cfg,
+                "train": {**model_cfg["train"], "epochs": budget, "early_stopping_patience": 0},
+            }
+            # A separate directory, because the tag pretrain_centralized builds is blind to
+            # the budget: sharing one would let this run overwrite the early-stopped
+            # checkpoints that every committed E6 number was produced from, and the overwrite
+            # is silent -- the fingerprint check only prints, then saves over them.
+            cache_dir = str(Path(cache_dir) / f"budget{budget}") if cache_dir else None
         return pretrain_centralized(
             records,
             fold,

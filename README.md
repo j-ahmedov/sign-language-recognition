@@ -20,7 +20,7 @@ run things.
 | 3 | Flower simulation, FedAvg, IID correctness check, E3 | **done** |
 | 4 | FedPer (E5), E4, E6, k-sweep | **done** |
 | 5 | Figures regenerated from `results/*.json` | **done** |
-| 6 | Live webcam demo through a virtual camera | **done**, except the two steps that need a person: see below |
+| 6 | Live webcam demo through a virtual camera | **done**, verified live: webcam → OBS Virtual Camera at 29.5 fps |
 
 ## The gap (RQ1)
 
@@ -196,9 +196,42 @@ crossover PLAN.md section 10 asked to be reported is **k=2 to k=3**; outside tha
 signer training alone is as good.
 
 **E5 slightly exceeds E6, which was specified as its upper bound.** +2.1 points at k=4 across
-30 folds. Two explanations remain unseparated: federated averaging may regularize the encoder
-toward signer-invariance, or E5's encoder simply gets more optimization (50 rounds x 2 local
-epochs) than E6's early-stopped one (mean 21 epochs). A matched-budget E6 would separate them.
+30 folds. Budget is the dull explanation and has to be ruled out first, which needs care,
+because the two training schedules are not comparable under a single number:
+
+| | E5 (FedPer) | E6 as run | |
+|---|---|---|---|
+| sequential updates per model | 1,000 | 1,888 | E6 gets **1.9x more** |
+| clip presentations | 256,000 | 60,416 | E5 gets **4.2x more** |
+
+A client takes 2 local epochs over one signer's 320 clips per round, so 50 rounds is 1,000
+optimizer steps; E6 selects at epoch 23.6 on average over 2,560 clips, or 1,888 steps. By
+sequential optimization E6 is already ahead and there is nothing to explain. Only the
+data-seen reading disadvantages it, so that is the one worth matching.
+
+**E6M** (`make sweep-matched`) is E6 at 100 epochs — the 50 x 2 passes over the pooled
+training set that the federation consumes — with early stopping off so the budget is spent
+and validation selection kept so nothing but the budget differs. Three seeds, same folds:
+
+| paired difference | k=2 | k=3 | k=4 |
+|---|---|---|---|
+| E5 − E6 | **+2.3** (21/30) | +1.8 (17/30) | **+2.1** (18/30) |
+| E5 − E6M | **+2.4** (20/30) | **+2.5** (21/30) | **+3.0** (23/30) |
+| E6M − E6 | −0.1 (10/30) | −0.7 (7/30) | −0.9 (7/30) |
+
+**The budget does not explain it.** Giving E6 four times the data exposure buys nothing at
+k >= 2 and costs a little at k=4 (−0.9 points, t=−2.04); E5's margin does not shrink but
+widens slightly, to +3.0 at k=4 (t=3.79). So the remaining explanation is the interesting
+one — that federated averaging regularizes the encoder toward signer-invariance, while
+longer pooled training lets it specialize to the seven training signers it can see.
+
+That last inference is not itself tested here, and the E6M − E6 differences are small: the
+k=4 cell is 7 folds of 30 improving, which is a direction rather than a demonstration. What
+the run does establish is the negative: **E5 > E6 is not an artefact of the schedule.**
+
+The numbers live under `diagnostics.matched_budget` in `figures/summary.json`. E6M is
+deliberately absent from every figure — it is the same method run twice, not a fourth method
+under test, and `figures.METHOD_ORDER` keeps it out of the charts by construction.
 
 ### Inter-signer variance
 
@@ -325,16 +358,50 @@ The overlay says so on every frame, so a screenshot cannot be mistaken for a res
 PLAN.md §3 the demo is illustrative; the evidence about recognition quality is in the figures
 above, on held-out signers.
 
-### The two steps that still need a person
+### Running it live
 
-- **The virtual camera device.** `pyvirtualcam` needs macOS's system extension, which only
-  OBS installs. Install OBS, click *Start Virtual Camera* once, then `make demo` publishes to
-  it and "SignAdapt" appears in Zoom's camera list. Without it the demo exits with that
-  instruction rather than a stack trace — the code path is wired but unverified end to end on
-  this machine.
-- **The webcam branch itself.** Everything above was measured on video files, because the
-  shell this was built in has no camera permission. `FrameSource("webcam")` is exercised the
-  first time you run `make demo`.
+Two things have to be true before `make demo` can publish anywhere. `pyvirtualcam` needs
+macOS's camera system extension, which only OBS installs: install OBS, approve it under
+*System Settings → General → Login Items & Extensions → Camera Extensions*, and click *Start
+Virtual Camera* once. Then whatever runs the demo needs camera permission — the first `make
+demo` raises the macOS prompt, and OpenCV does not wait for the answer, so the first attempt
+fails and the second succeeds. A previously denied decision is never re-prompted; reset just
+that one with `tccutil reset Camera com.apple.Terminal`.
+
+The device SignAdapt publishes to is called **OBS Virtual Camera** in Zoom, Meet and Teams —
+OBS owns the name; SignAdapt only writes the frames. It exists only while OBS is running.
+
+To check the output without joining a call, read the device back rather than reaching for
+Photo Booth, which does not list third-party camera extensions at all and so looks like a
+failure when nothing is wrong. With `make demo` publishing, the virtual camera is an ordinary
+capture device — `cv2.VideoCapture(1)` on this machine, index 0 being the built-in camera —
+so a few lines of OpenCV save exactly the frame a call would receive. That readback is how
+the overlay was confirmed end to end: telemetry and stage timings top-left, checkpoint and
+the not-validated notice top-right and fully inside the frame, the caption placeholder and
+its runner-up labels bottom-left.
+
+Measured on a real session, `results/demo_*.json` with `source.live: true`:
+
+```
+[demo] webcam 1920x1080 -> virtualcam | fedavg-pretrain seed 0 on cpu | ctrl-c to stop
+[demo] 591 frames in 20.0s = 29.5 fps (meets the 15 fps target)
+  frame  p50 33.4 ms   p95 36.1 ms
+  capture 16.3 | landmarks 12.9 | render 2.4 | normalize 0.5 | model 1.1   (p50 ms)
+```
+
+**29.5 fps live against 68.9 fps on the benchmark, and the difference is the camera, not the
+pipeline.** Capture is 16.3 ms of the 33.4 ms frame — 49 % — and almost all of it is the
+blocking wait for the next exposure. Strip it out and the work per frame is 16.8 ms, which
+is what the benchmark measures. This is the headroom claim above arriving as a measurement:
+the camera sets the pace, and the pipeline keeps up with half the frame to spare.
+
+For that reason the live session is **not drawn in fig7** and never shares an axis with a
+benchmark row. A camera-bound CPU run reports a slower frame than an unthrottled MPS one, so
+mixing them would say the GPU is the better choice while the benchmark says the opposite. The
+live numbers live under `live` in `figures/summary.json`; the drawn rows are benchmarks only.
+
+Note the camera *reports* 15 fps and *delivers* about 30, so `source.fps` from a live run is
+not a usable budget denominator either — fig7 takes its 33.3 ms line from the benchmark.
 
 ## Setup
 
@@ -356,6 +423,7 @@ Tested on macOS 15 (Apple M4, 16 GB) with Python 3.12.
 | `make federated` | IID correctness check, then FedAvg over one client per signer |
 | `make local` | E3 local-only: each held-out signer trains from scratch on k of their clips |
 | `make sweep` | E4/E5/E6 k-shot adaptation over every leave-one-signer-out fold |
+| `make sweep-matched` | E6M: E6 again at E5's pretraining budget, the diagnostic for E5 > E6 |
 | `make figures` | Rebuild every figure from committed `results/*.json` |
 | `make demo` | Webcam → keypoints → caption → virtual camera (`SINK=window` to preview) |
 | `make demo-verify` | Does the live path reproduce the offline pipeline? Held-out clips only |
